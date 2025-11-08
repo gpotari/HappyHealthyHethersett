@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Pocket forest site ready for planting</title>
+  <desc id="desc">Stylised illustration showing excavator and compost mounds waiting for tree planting.</desc>
+  <defs>
+    <linearGradient id="evening" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9ed0f2"/>
+      <stop offset="100%" stop-color="#f7f4ed"/>
+    </linearGradient>
+    <linearGradient id="compost2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3a2311"/>
+      <stop offset="100%" stop-color="#6b4123"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1200" fill="url(#evening)"/>
+  <rect y="620" width="1600" height="580" fill="#7bc181"/>
+  <ellipse cx="420" cy="930" rx="260" ry="150" fill="url(#compost2)"/>
+  <ellipse cx="1180" cy="930" rx="230" ry="130" fill="#c18c4a" opacity="0.85"/>
+  <g transform="translate(930 420)">
+    <rect x="-120" y="120" width="320" height="160" rx="36" fill="#f0b428"/>
+    <rect x="120" y="-20" width="200" height="240" rx="44" fill="#f6d067"/>
+    <rect x="-180" y="80" width="60" height="240" rx="20" fill="#b9801c"/>
+    <path d="M300 80 Q360 120 390 170 Q420 220 470 260 Q420 280 360 260 Q320 210 280 160 Z" fill="#e4a53a"/>
+    <circle cx="-60" cy="180" r="50" fill="#333" opacity="0.25"/>
+  </g>
+  <text x="200" y="1080" font-family="'Segoe UI', sans-serif" font-size="72" font-weight="700" fill="#1f5b3c">Site ready for 600 native trees</text>
+  <text x="200" y="1150" font-family="'Segoe UI', sans-serif" font-size="46" fill="#2d2a26">Compost mounds and machinery await the community planting day.</text>
+</svg>

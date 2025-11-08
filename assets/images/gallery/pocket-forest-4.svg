@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Pocket forest planting pits being shaped</title>
+  <desc id="desc">Stylised illustration of an excavator forming planting pits across a green field.</desc>
+  <defs>
+    <linearGradient id="sky2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#cce6f4"/>
+      <stop offset="100%" stop-color="#f7f4ed"/>
+    </linearGradient>
+    <linearGradient id="earth" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#bb8a54"/>
+      <stop offset="100%" stop-color="#8c5f32"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1200" fill="url(#sky2)"/>
+  <rect y="620" width="1600" height="580" fill="#7abf78"/>
+  <g fill="url(#earth)">
+    <ellipse cx="320" cy="820" rx="180" ry="90"/>
+    <ellipse cx="640" cy="900" rx="210" ry="110"/>
+    <ellipse cx="980" cy="820" rx="200" ry="96"/>
+    <ellipse cx="1300" cy="900" rx="220" ry="110"/>
+  </g>
+  <g transform="translate(850 420)">
+    <rect x="-160" y="40" width="380" height="180" rx="40" fill="#f2b22c"/>
+    <rect x="150" y="-90" width="140" height="220" rx="40" fill="#f8d47a"/>
+    <rect x="-200" y="0" width="40" height="260" rx="16" fill="#b37c1a"/>
+    <path d="M290 80 Q340 110 360 170 Q380 230 430 260 Q360 280 320 250 Q300 190 260 150 Z" fill="#d49b3a"/>
+    <circle cx="-100" cy="160" r="45" fill="#333" opacity="0.25"/>
+  </g>
+  <text x="200" y="1085" font-family="'Segoe UI', sans-serif" font-size="72" font-weight="700" fill="#1f5b3c">Shaping the planting pits</text>
+  <text x="200" y="1160" font-family="'Segoe UI', sans-serif" font-size="46" fill="#2d2a26">Clusters ready for dense Miyawaki planting design.</text>
+</svg>
