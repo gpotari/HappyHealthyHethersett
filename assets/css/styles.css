@@ -191,7 +191,7 @@ img {
 .hero {
     background: url('../images/header.png');
     background-repeat: no-repeat;
-    background-position: center;
+    background-position: center bottom;
     background-size: cover;
     background-color: var(--deep-green);
     color: var(--white);
