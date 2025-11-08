@@ -1,0 +1,537 @@
+/* =============================
+   Design tokens & root settings
+   ============================= */
+:root {
+    --deep-green: #1f5b3c;
+    --light-green: #6bb78b;
+    --warm-yellow: #f2c94c;
+    --soft-beige: #f7f4ed;
+    --muted-green: #dbece2;
+    --text-dark: #2d2a26;
+    --text-muted: #4f6456;
+    --white: #ffffff;
+    --shadow-soft: 0 12px 30px rgba(31, 91, 60, 0.08);
+    --shadow-lift: 0 8px 20px rgba(0, 0, 0, 0.15);
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* =============================
+   Base element styling
+   ============================= */
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    background-color: var(--soft-beige);
+    color: var(--text-dark);
+    line-height: 1.6;
+}
+
+a {
+    color: var(--deep-green);
+    text-decoration: none;
+}
+
+a:hover,
+a:focus {
+    text-decoration: underline;
+}
+
+img {
+    max-width: 100%;
+    display: block;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: 1rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--deep-green);
+    color: var(--white);
+    border-radius: 0.75rem;
+    transition: top 0.2s ease;
+    z-index: 9999;
+}
+
+.skip-link:focus {
+    top: 1rem;
+}
+
+.container {
+    width: min(1100px, 92vw);
+    margin: 0 auto;
+}
+
+/* =============================
+   Header & navigation
+   ============================= */
+.site-header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background-color: rgba(247, 244, 237, 0.95);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    position: relative;
+}
+
+.site-branding {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.site-logo {
+    font-size: 1.4rem;
+}
+
+.site-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--deep-green);
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+.primary-nav {
+    position: relative;
+}
+
+.nav-list {
+    list-style: none;
+    display: flex;
+    gap: 1.5rem;
+    padding: 0;
+    margin: 0;
+}
+
+.nav-list a {
+    font-weight: 600;
+}
+
+.nav-toggle {
+    display: none;
+    border: 0;
+    background: none;
+    color: var(--deep-green);
+    cursor: pointer;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-toggle__bar,
+.nav-toggle__bar::before,
+.nav-toggle__bar::after {
+    display: block;
+    width: 1.4rem;
+    height: 2px;
+    background-color: var(--deep-green);
+    position: relative;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.nav-toggle__bar::before,
+.nav-toggle__bar::after {
+    content: "";
+    position: absolute;
+    left: 0;
+}
+
+.nav-toggle__bar::before {
+    top: -0.4rem;
+}
+
+.nav-toggle__bar::after {
+    top: 0.4rem;
+}
+
+.nav-toggle[aria-expanded="true"] .nav-toggle__bar {
+    background-color: transparent;
+}
+
+.nav-toggle[aria-expanded="true"] .nav-toggle__bar::before {
+    transform: translateY(0.4rem) rotate(45deg);
+}
+
+.nav-toggle[aria-expanded="true"] .nav-toggle__bar::after {
+    transform: translateY(-0.4rem) rotate(-45deg);
+}
+
+/* =============================
+   Hero
+   ============================= */
+.hero {
+    background: linear-gradient(135deg, rgba(31, 91, 60, 0.85), rgba(107, 183, 139, 0.85)),
+        url('https://images.unsplash.com/photo-1526336024174-e58f5cdd8e13?auto=format&fit=crop&w=1600&q=80') center/cover;
+    color: var(--white);
+    text-align: center;
+    padding: 7rem 0 6rem;
+}
+
+.hero__inner {
+    display: flex;
+    justify-content: center;
+}
+
+.hero__copy {
+    max-width: 680px;
+}
+
+.hero__tagline {
+    font-size: clamp(1.2rem, 3vw, 1.6rem);
+    margin-bottom: 1rem;
+}
+
+.hero__intro {
+    margin-bottom: 2.5rem;
+    font-size: 1.05rem;
+}
+
+.button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: center;
+}
+
+/* =============================
+   Buttons
+   ============================= */
+.btn {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    border-radius: 999px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    text-align: center;
+}
+
+.btn:focus-visible {
+    outline: 3px solid rgba(107, 183, 139, 0.45);
+    outline-offset: 2px;
+}
+
+.btn:hover,
+.btn:focus-visible {
+    transform: translateY(-2px);
+}
+
+.btn--primary {
+    background-color: var(--warm-yellow);
+    color: #1f2a1d;
+    box-shadow: var(--shadow-lift);
+}
+
+.btn--secondary {
+    background-color: var(--white);
+    color: var(--deep-green);
+    box-shadow: 0 8px 20px rgba(31, 91, 60, 0.14);
+}
+
+/* =============================
+   Sections
+   ============================= */
+.section {
+    padding: 4.5rem 0;
+}
+
+.section--alt {
+    background-color: var(--white);
+}
+
+.section__header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+}
+
+.section__intro {
+    max-width: 680px;
+    margin: 0 auto;
+    color: var(--text-muted);
+}
+
+.section h2 {
+    font-size: clamp(1.9rem, 4vw, 2.6rem);
+    color: var(--deep-green);
+    margin-bottom: 1rem;
+}
+
+/* =============================
+   Card grids
+   ============================= */
+.grid {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.card,
+.project-card,
+.story-card {
+    background-color: var(--white);
+    border-radius: 18px;
+    padding: 1.75rem;
+    box-shadow: var(--shadow-soft);
+}
+
+.card__body > h3,
+.project-card > h3 {
+    margin-top: 0;
+    color: var(--deep-green);
+}
+
+.card__body time {
+    display: block;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.card__link {
+    font-weight: 600;
+}
+
+/* =============================
+   Events stack
+   ============================= */
+.stack {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.event-card {
+    background-color: var(--white);
+    border-radius: 18px;
+    padding: 1.75rem;
+    border-left: 6px solid var(--light-green);
+    box-shadow: var(--shadow-soft);
+}
+
+.event-card__header h3 {
+    margin: 0;
+    color: var(--deep-green);
+}
+
+.event-card__meta {
+    margin: 0.35rem 0 1rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+/* =============================
+   Projects
+   ============================= */
+.project-card {
+    border-top: 6px solid var(--warm-yellow);
+}
+
+/* =============================
+   Stories
+   ============================= */
+.story-card blockquote {
+    margin: 0;
+    font-style: italic;
+}
+
+.story-card__author {
+    margin-top: 1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+/* =============================
+   Contact
+   ============================= */
+.contact__grid {
+    display: grid;
+    gap: 2rem;
+}
+
+.contact-form {
+    background-color: var(--white);
+    border-radius: 18px;
+    padding: 2rem;
+    box-shadow: var(--shadow-soft);
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 1.1rem;
+}
+
+label {
+    font-weight: 600;
+}
+
+input,
+textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 12px;
+    border: 1px solid #cbd7ce;
+    font: inherit;
+    background-color: #fdfbf6;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--light-green);
+    box-shadow: 0 0 0 3px rgba(107, 183, 139, 0.25);
+}
+
+.contact-details {
+    background-color: var(--muted-green);
+    border-radius: 18px;
+    padding: 2rem;
+}
+
+.contact-details__list {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+    display: grid;
+    gap: 0.5rem;
+}
+
+/* =============================
+   Footer
+   ============================= */
+.site-footer {
+    background-color: #1f402d;
+    color: #eaf3ec;
+    padding: 2.5rem 0;
+}
+
+.footer__inner {
+    display: grid;
+    gap: 1.5rem;
+    text-align: center;
+}
+
+.footer__title {
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.footer__links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.footer__nav a {
+    color: #eaf3ec;
+}
+
+/* =============================
+   Responsive adjustments
+   ============================= */
+@media (max-width: 768px) {
+    .nav-toggle {
+        display: inline-flex;
+    }
+
+    .nav-list {
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        right: 0;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 1rem 1.5rem;
+        width: min(280px, 80vw);
+        background-color: rgba(247, 244, 237, 0.98);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+        border-radius: 12px;
+        transform-origin: top;
+        transform: scaleY(0);
+        transition: transform 0.2s ease;
+        gap: 1rem;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    .nav-list.is-open {
+        transform: scaleY(1);
+        pointer-events: auto;
+        opacity: 1;
+    }
+}
+
+@media (min-width: 600px) {
+    .grid--news {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .grid--projects {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .grid--stories {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .contact__grid {
+        grid-template-columns: 1.1fr 0.9fr;
+    }
+}
+
+@media (min-width: 900px) {
+    .grid--news {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .grid--projects {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .grid--stories {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .footer__inner {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        text-align: left;
+    }
+
+    .footer__links {
+        justify-content: flex-end;
+    }
+}
