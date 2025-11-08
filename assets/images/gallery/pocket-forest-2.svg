@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Excavator bucket preparing the Miyawaki site</title>
+  <desc id="desc">Stylised illustration of an excavator bucket slicing turf on a grassy field.</desc>
+  <defs>
+    <linearGradient id="dawn" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7d9a4"/>
+      <stop offset="100%" stop-color="#f2f0e2"/>
+    </linearGradient>
+    <linearGradient id="soil" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a26434"/>
+      <stop offset="100%" stop-color="#d8a674"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1200" fill="url(#dawn)"/>
+  <rect y="650" width="1600" height="550" fill="#6fb26e"/>
+  <path d="M0 850 Q400 700 800 820 T1600 820 V1200 H0 Z" fill="url(#soil)" opacity="0.9"/>
+  <g transform="translate(850 380)">
+    <rect x="-80" y="0" width="420" height="180" rx="32" fill="#f2ab2c"/>
+    <rect x="260" y="-60" width="220" height="120" rx="28" fill="#333" opacity="0.3"/>
+    <path d="M260 120 L520 240 L500 300 L240 180 Z" fill="#f9c450"/>
+    <path d="M500 300 C460 360 420 380 360 380 H220 L260 300 Z" fill="#8d6135"/>
+    <circle cx="20" cy="90" r="38" fill="#333" opacity="0.2"/>
+  </g>
+  <text x="160" y="1060" font-family="'Segoe UI', sans-serif" font-size="72" font-weight="700" fill="#1f5b3c">Ground preparation begins</text>
+  <text x="160" y="1135" font-family="'Segoe UI', sans-serif" font-size="46" fill="#2d2a26">Aerating turf so young trees can thrive.</text>
+</svg>

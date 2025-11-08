@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Compost delivered for pocket forest</title>
+  <desc id="desc">Stylised illustration of a compost mound beside community garden beds.</desc>
+  <defs>
+    <linearGradient id="sunset" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f6c37c"/>
+      <stop offset="100%" stop-color="#f1ede0"/>
+    </linearGradient>
+    <linearGradient id="compost" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a3719"/>
+      <stop offset="100%" stop-color="#2d1d0c"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1200" fill="url(#sunset)"/>
+  <rect y="640" width="1600" height="560" fill="#86c48a"/>
+  <ellipse cx="800" cy="940" rx="520" ry="220" fill="url(#compost)"/>
+  <ellipse cx="820" cy="880" rx="430" ry="180" fill="#3c2311" opacity="0.75"/>
+  <g fill="#d1e3ba" opacity="0.8">
+    <rect x="250" y="660" width="140" height="280" rx="18"/>
+    <rect x="410" y="660" width="140" height="280" rx="18"/>
+    <rect x="570" y="660" width="140" height="280" rx="18"/>
+  </g>
+  <g fill="#2f6138">
+    <circle cx="290" cy="620" r="46"/>
+    <circle cx="450" cy="600" r="40"/>
+    <circle cx="610" cy="630" r="44"/>
+  </g>
+  <text x="170" y="1080" font-family="'Segoe UI', sans-serif" font-size="70" font-weight="700" fill="#1f5b3c">Nutrient-rich compost arrives</text>
+  <text x="170" y="1150" font-family="'Segoe UI', sans-serif" font-size="46" fill="#2d2a26">Fuel for hundreds of native whips and shrubs.</text>
+</svg>
