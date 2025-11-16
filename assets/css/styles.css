@@ -189,11 +189,15 @@ img {
    Hero
    ============================= */
 .hero {
-    background: linear-gradient(135deg, rgba(31, 91, 60, 0.85), rgba(107, 183, 139, 0.85)),
-        url('assets/images/header.png') center/cover;
+    background: url('../images/header.png');
+    background-repeat: no-repeat;
+    background-position: center bottom;
+    background-size: cover;
+    background-color: var(--deep-green);
     color: var(--white);
     text-align: center;
     padding: 7rem 0 6rem;
+    text-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 .hero__inner {
