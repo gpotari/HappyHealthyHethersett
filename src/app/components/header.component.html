@@ -1,0 +1,28 @@
+<header class="site-header" id="home">
+  <div class="container nav-bar">
+    <div class="site-branding">
+      <span class="site-logo" aria-hidden="true">🌱</span>
+      <p class="site-title">Happy Healthy Hethersett</p>
+    </div>
+    <button
+      class="nav-toggle"
+      type="button"
+      [attr.aria-expanded]="navOpen"
+      aria-controls="primary-navigation"
+      (click)="toggleNav()"
+    >
+      <span class="visually-hidden">Menu</span>
+      <span class="nav-toggle__bar" aria-hidden="true"></span>
+    </button>
+    <nav class="primary-nav" aria-label="Primary">
+      <ul id="primary-navigation" class="nav-list" [class.is-open]="navOpen">
+        <li><a href="#home" (click)="closeNav()">Home</a></li>
+        <li><a href="#news" (click)="closeNav()">News</a></li>
+        <li><a href="#events" (click)="closeNav()">Upcoming events</a></li>
+        <li><a href="#projects" (click)="closeNav()">Our projects</a></li>
+        <li><a href="#stories" (click)="closeNav()">Stories</a></li>
+        <li><a href="#contact" (click)="closeNav()">Contact</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
