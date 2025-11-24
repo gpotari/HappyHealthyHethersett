@@ -1,0 +1,135 @@
+.section--gallery {
+  background-color: var(--white);
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.gallery__item {
+  background-color: var(--soft-beige);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  display: grid;
+  gap: 0;
+}
+
+.gallery__thumbnail {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: block;
+}
+
+.gallery__thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  aspect-ratio: 4 / 3;
+  display: block;
+}
+
+.gallery__item figcaption {
+  padding: 1rem 1.25rem 1.25rem;
+  background-color: rgba(255, 255, 255, 0.92);
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.lightbox__dialog {
+  background: var(--white);
+  border-radius: 16px;
+  max-width: 960px;
+  width: min(90vw, 960px);
+  box-shadow: var(--shadow-soft);
+  position: relative;
+  overflow: hidden;
+}
+
+.lightbox__close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  border: none;
+  background: transparent;
+  font-size: 1.75rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.lightbox__body {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.lightbox__figure {
+  margin: 0;
+  text-align: center;
+}
+
+.lightbox__figure img {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.lightbox__figure figcaption {
+  margin-top: 0.75rem;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.lightbox__nav {
+  border: none;
+  background: transparent;
+  color: var(--deep-green);
+  font-size: 2.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.lightbox__nav:hover,
+.lightbox__close:hover {
+  color: var(--warm-yellow);
+}
+
+@media (max-width: 640px) {
+  .gallery {
+    grid-template-columns: 1fr;
+  }
+
+  .lightbox__body {
+    grid-template-columns: 1fr;
+  }
+
+  .lightbox__nav {
+    order: -1;
+    display: inline-flex;
+    justify-content: center;
+  }
+
+  .lightbox__figure figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.95rem;
+  }
+}

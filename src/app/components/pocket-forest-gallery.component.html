@@ -7,26 +7,36 @@
       </p>
     </header>
     <div class="gallery" role="list">
-      <figure class="gallery__item" role="listitem">
-        <img src="assets/images/gallery/pocket-forest-1.svg" alt="Marked out pocket forest plot beside Hethersett Village Hall tennis courts.">
-        <figcaption>Village Hall field sectioned off ready for the 120 square metre forest site.</figcaption>
+      <figure class="gallery__item" role="listitem" *ngFor="let image of images; let i = index">
+        <button class="gallery__thumbnail" type="button" (click)="openLightbox(i)" [attr.aria-label]="'View larger image: ' + image.caption">
+          <img [src]="image.src" [alt]="image.alt" />
+        </button>
+        <figcaption>{{ image.caption }}</figcaption>
       </figure>
-      <figure class="gallery__item" role="listitem">
-        <img src="assets/images/gallery/pocket-forest-2.svg" alt="Excavator bucket cutting turf at the pocket forest site.">
-        <figcaption>Topsoil carefully lifted to aerate the ground before planting.</figcaption>
-      </figure>
-      <figure class="gallery__item" role="listitem">
-        <img src="assets/images/gallery/pocket-forest-3.svg" alt="Compost pile ready to nourish new pocket forest trees.">
-        <figcaption>Rich compost delivered to feed the young native tree whips.</figcaption>
-      </figure>
-      <figure class="gallery__item" role="listitem">
-        <img src="assets/images/gallery/pocket-forest-4.svg" alt="Excavator shaping planting pits across the grass field.">
-        <figcaption>Volunteers and contractors shaping planting pits for dense clusters.</figcaption>
-      </figure>
-      <figure class="gallery__item" role="listitem">
-        <img src="assets/images/gallery/pocket-forest-5.svg" alt="Excavator and compost mounds awaiting tree planting.">
-        <figcaption>Groundworks complete and soil mounded, ready for 600 native trees in November.</figcaption>
-      </figure>
+    </div>
+  </div>
+
+  <div
+    *ngIf="lightboxOpen"
+    class="lightbox"
+    role="dialog"
+    aria-modal="true"
+    [attr.aria-label]="images[activeIndex]?.caption"
+    (click)="closeLightbox()"
+    (keydown)="handleKeydown($event)"
+    tabindex="0"
+    #lightboxContainer
+  >
+    <div class="lightbox__dialog" (click)="$event.stopPropagation()">
+      <button class="lightbox__close" type="button" (click)="closeLightbox()" aria-label="Close gallery">×</button>
+      <div class="lightbox__body">
+        <button class="lightbox__nav lightbox__nav--prev" type="button" (click)="prevImage()" aria-label="Previous image">‹</button>
+        <figure class="lightbox__figure">
+          <img [src]="images[activeIndex]?.src" [alt]="images[activeIndex]?.alt" />
+          <figcaption>{{ images[activeIndex]?.caption }}</figcaption>
+        </figure>
+        <button class="lightbox__nav lightbox__nav--next" type="button" (click)="nextImage()" aria-label="Next image">›</button>
+      </div>
     </div>
   </div>
 </section>
