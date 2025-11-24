@@ -1,3 +1,4 @@
+import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild } from '@angular/core';
 
 type GalleryImage = {
@@ -9,6 +10,7 @@ type GalleryImage = {
 @Component({
   selector: 'app-pocket-forest-gallery',
   standalone: true,
+  imports: [CommonModule],
   templateUrl: './pocket-forest-gallery.component.html',
   styleUrls: ['./pocket-forest-gallery.component.css']
 })
