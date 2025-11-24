@@ -53,5 +53,8 @@
       }
     }
   },
-  "defaultProject": "happy-healthy-hethersett"
+  "defaultProject": "happy-healthy-hethersett",
+  "cli": {
+    "analytics": false
+  }
 }
