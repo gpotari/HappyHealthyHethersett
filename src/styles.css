@@ -189,14 +189,15 @@ img {
    Hero
    ============================= */
 .hero {
-    background:
-    url('assets/images/header.png');
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: cover;
-    color: var(--black);
+    background-color: var(--soft-beige);
+    background-image: url('assets/images/header.png');
+    background-repeat: no-repeat;
+    background-position: top center;
+    background-size: contain;
+    color: var(--text-dark);
     text-align: center;
-    padding: 7rem 0 6rem;
+    padding: clamp(4rem, 12vw, 7rem) 0 clamp(3rem, 10vw, 6rem);
+    min-height: clamp(320px, 80vw, 560px);
 }
 
 .hero__inner {
