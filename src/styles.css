@@ -189,19 +189,26 @@ img {
    Hero
    ============================= */
 .hero {
-    background:
-    url('assets/images/header.png');
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: cover;
-    color: var(--black);
+    background-color: var(--soft-beige);
+    background-image: url('assets/images/header.png');
+    background-repeat: no-repeat;
+    background-position: center top;
+    background-size: cover;
+    color: var(--text-dark);
     text-align: center;
-    padding: 7rem 0 6rem;
+    padding: clamp(3rem, 8vw, 5.5rem) clamp(1.5rem, 5vw, 3rem);
+    min-height: clamp(480px, 80vh, 880px);
+    aspect-ratio: 3 / 2;
+    display: flex;
+    align-items: center;
 }
 
 .hero__inner {
     display: flex;
     justify-content: center;
+    align-items: center;
+    width: min(1200px, 95vw);
+    min-height: inherit;
 }
 
 .hero__copy {
