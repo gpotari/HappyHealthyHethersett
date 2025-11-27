@@ -202,6 +202,15 @@ img {
     align-items: center;
 }
 
+.hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, rgba(247, 244, 237, 0.9) 10%, rgba(247, 244, 237, 0.75) 34%, rgba(247, 244, 237, 0.18) 72%);
+    z-index: 0;
+    pointer-events: none;
+}
+
 .hero__image {
     position: absolute;
     inset: 0;
@@ -224,7 +233,21 @@ img {
 }
 
 .hero__copy {
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(6px);
+    padding: clamp(1.4rem, 4vw, 2rem);
+    border-radius: 22px;
+    box-shadow: 0 16px 40px rgba(31, 91, 60, 0.12);
     max-width: 680px;
+}
+
+.hero__title {
+    font-size: clamp(2.4rem, 5vw, 3.4rem);
+    margin: 0 0 0.75rem;
+    color: var(--deep-green);
+    letter-spacing: 0.4px;
+    line-height: 1.1;
+    text-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
 
 .hero__tagline {
