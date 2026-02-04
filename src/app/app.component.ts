@@ -3,6 +3,7 @@ import { HeaderComponent } from './components/header.component';
 import { HeroComponent } from './components/hero.component';
 import { NewsComponent } from './components/news.component';
 import { PocketForestGalleryComponent } from './components/pocket-forest-gallery.component';
+import { MiyawakiTimelineComponent } from './components/miyawaki-timeline.component';
 import { EventsComponent } from './components/events.component';
 import { ProjectsComponent } from './components/projects.component';
 import { StoriesComponent } from './components/stories.component';
@@ -17,6 +18,7 @@ import { FooterComponent } from './components/footer.component';
     HeroComponent,
     NewsComponent,
     PocketForestGalleryComponent,
+    MiyawakiTimelineComponent,
     EventsComponent,
     ProjectsComponent,
     StoriesComponent,
