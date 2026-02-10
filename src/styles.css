@@ -404,6 +404,29 @@ img {
     box-shadow: var(--shadow-soft);
 }
 
+.event-card__image-button {
+    border: none;
+    padding: 0;
+    background: none;
+    width: 100%;
+    cursor: pointer;
+    border-radius: 16px;
+}
+
+.event-card__image-button:focus-visible {
+    outline: 3px solid rgba(107, 183, 139, 0.45);
+    outline-offset: 4px;
+}
+
+.event-card__image {
+    width: 100%;
+    border-radius: 14px;
+    margin: 1rem 0 1.25rem;
+    height: 180px;
+    object-fit: cover;
+    box-shadow: 0 12px 24px rgba(31, 91, 60, 0.12);
+}
+
 .event-card__header h3 {
     margin: 0;
     color: var(--deep-green);
@@ -413,6 +436,44 @@ img {
     margin: 0.35rem 0 1rem;
     color: var(--text-muted);
     font-size: 0.95rem;
+}
+
+.event-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(24, 40, 32, 0.72);
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    z-index: 1200;
+}
+
+.event-lightbox__dialog {
+    background: var(--white);
+    border-radius: 18px;
+    padding: 1.25rem;
+    width: min(92vw, 960px);
+    box-shadow: var(--shadow-lift);
+    position: relative;
+}
+
+.event-lightbox__close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    border: none;
+    background: none;
+    font-size: 2rem;
+    cursor: pointer;
+    line-height: 1;
+    color: var(--deep-green);
+}
+
+.event-lightbox__image {
+    width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: 12px;
 }
 
 /* =============================

@@ -1,0 +1,240 @@
+.admin__login {
+  max-width: 560px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.admin__login-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin__panel {
+  display: grid;
+  gap: 2rem;
+}
+
+.admin__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.admin__upload {
+  position: relative;
+  overflow: hidden;
+}
+
+.admin__upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.admin__status {
+  margin: 0;
+  color: var(--deep-green);
+  font-weight: 600;
+}
+
+.admin__error {
+  margin: 0;
+  color: #b23b2e;
+  font-weight: 600;
+}
+
+.admin__new h3,
+.admin__list h3 {
+  margin-top: 0;
+  color: var(--deep-green);
+}
+
+.admin__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.admin__field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.admin__hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.admin__field--full {
+  margin-bottom: 1rem;
+}
+
+.admin__image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.admin__image-button {
+  min-width: 160px;
+  justify-content: center;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+}
+
+.admin__upload.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.admin__image-preview {
+  width: min(360px, 100%);
+  height: 180px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #f0f4f1;
+  border: 1px solid rgba(31, 91, 60, 0.12);
+  box-shadow: 0 10px 20px rgba(31, 91, 60, 0.12);
+}
+
+.admin__image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.admin__list {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.admin__table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  background: var(--white);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin__table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.admin__table th,
+.admin__table td {
+  padding: 0.9rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(31, 91, 60, 0.08);
+  font-size: 0.95rem;
+}
+
+.admin__table th {
+  background-color: #f6faf7;
+  font-weight: 700;
+  color: var(--deep-green);
+}
+
+.admin__table-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.admin__details-row td {
+  background-color: #fbfcfa;
+}
+
+.admin__details {
+  margin: 1rem 0;
+}
+
+.admin__details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.admin__details-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.btn--danger {
+  background-color: #fbe9e7;
+  color: #b23b2e;
+  border: 1px solid rgba(178, 59, 46, 0.35);
+}
+
+.admin__sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 34, 28, 0.6);
+  display: grid;
+  place-items: end center;
+  padding: 1.5rem 1rem;
+  z-index: 1200;
+}
+
+.admin__sheet {
+  width: min(900px, 96vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--white);
+  border-radius: 24px 24px 16px 16px;
+  padding: 1.5rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+  animation: adminSheetUp 0.25s ease;
+}
+
+.admin__sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.admin__sheet-header h3 {
+  margin: 0;
+  color: var(--deep-green);
+}
+
+.admin__sheet-close {
+  border: none;
+  background: none;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--deep-green);
+}
+
+@keyframes adminSheetUp {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

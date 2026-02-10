@@ -6,40 +6,61 @@
         Come along to one of our friendly sessions — there is something for everyone, from practical action days to informative workshops.
       </p>
     </header>
-    <div class="stack stack--events" role="list">
-      <article class="event-card" role="listitem" aria-labelledby="event-0-title">
-        <div class="event-card__header">
-          <h3 id="event-0-title">Community litter pick: Sunday 30 November</h3>
-          <p class="event-card__meta"><time datetime="2025-11-30T10:00">Sunday 30 November, 10:00 – 11:30</time> • The Back Garden</p>
-        </div>
-        <p>
-          Lend a hand keeping Hethersett tidy—join neighbours and friends for a friendly litter pick starting at 10:00am. All
-          equipment is provided; please wear sturdy footwear and weather-ready clothing.
-        </p>
-        <a class="btn btn--secondary" href="mailto:info@happyhealthyhethersett.co.uk">Email to join us</a>
-      </article>
-      <article class="event-card" role="listitem" aria-labelledby="event-1-title">
-        <div class="event-card__header">
-          <h3 id="event-1-title">Community meetup: help us grow 100,000 trees</h3>
-          <p class="event-card__meta"><time datetime="2025-12-04T18:30">Thursday 4 December, 18:30 – 20:30</time> • The Kings Head Pub</p>
-        </div>
-        <p>
-          Hear how we have already planted over 1,500 trees locally and share ideas on how we reach our 100,000-tree goal by 2030.
-        </p>
-        <a class="btn btn--secondary" href="mailto:info@happyhealthyhethersett.co.uk">Email to RSVP</a>
-      </article>
-      <article class="event-card" role="listitem" aria-labelledby="event-2-title">
-        <div class="event-card__header">
-          <h3 id="event-2-title">HEAT Christmas wreath workshop</h3>
-          <p class="event-card__meta"><time datetime="2024-11-29T10:00">Saturday 29 November, 10:00 – 12:00</time> • Back Garden at the Village Hall</p>
-        </div>
-        <p>
-          Learn to make your own Christmas wreath to take home at this free, donation-welcome workshop. Rings are provided — please bring your own greenery, decorations, and scissors.
-          Drinks and homemade cake will be available.
-        </p>
-        <a class="btn btn--secondary" href="mailto:wishart125@btinternet.com">Email to book by 26 November</a>
-        <p class="event-card__meta">You can also ring <a href="tel:07518024617">07518 024617</a> to secure your place.</p>
-      </article>
-    </div>
+    <ng-container *ngIf="events$ | async as events; else noEvents">
+      <div class="stack stack--events" role="list" *ngIf="events.length; else noEvents">
+        <article
+          class="event-card"
+          role="listitem"
+          *ngFor="let event of events; let i = index"
+          [attr.aria-labelledby]="'event-' + i + '-title'"
+        >
+          <div class="event-card__header">
+            <h3 [id]="'event-' + i + '-title'">{{ event.title }}</h3>
+            <p class="event-card__meta">
+              <time [attr.datetime]="formatDateTime(event.date, event.start)">{{ formatEventDate(event) }}</time>
+              <ng-container *ngIf="event.location"> • {{ event.location }}</ng-container>
+            </p>
+          </div>
+          <button
+            *ngIf="event.imageUrl"
+            class="event-card__image-button"
+            type="button"
+            (click)="openImage(event)"
+            aria-label="View event image"
+          >
+            <img
+              class="event-card__image"
+              [src]="event.imageUrl"
+              [alt]="event.imageAlt || event.title"
+              loading="lazy"
+            />
+          </button>
+          <p>{{ event.description }}</p>
+          <a class="btn btn--secondary" *ngIf="event.ctaHref" [href]="event.ctaHref">
+            {{ ctaLabel(event) }}
+          </a>
+          <p class="event-card__meta" *ngIf="event.note">
+            <ng-container *ngIf="event.phone && noteParts(event) as parts; else plainNote">
+              {{ parts.before }}<a [href]="phoneLink(event.phone)">{{ event.phone }}</a>{{ parts.after }}
+            </ng-container>
+            <ng-template #plainNote>{{ event.note }}</ng-template>
+          </p>
+        </article>
+      </div>
+    </ng-container>
+    <ng-template #noEvents>
+      <div class="card">
+        <p>There are no upcoming events scheduled right now. Please check back soon.</p>
+      </div>
+    </ng-template>
   </div>
 </section>
+
+<div class="event-lightbox" *ngIf="activeImageUrl" (click)="closeImage()">
+  <div class="event-lightbox__dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <button class="event-lightbox__close" type="button" (click)="closeImage()" aria-label="Close image">
+      ×
+    </button>
+    <img class="event-lightbox__image" [src]="activeImageUrl" [alt]="activeImageAlt" />
+  </div>
+</div>

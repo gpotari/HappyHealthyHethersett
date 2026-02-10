@@ -1,0 +1,34 @@
+[
+  {
+    "title": "Community litter pick: Sunday 30 November",
+    "date": "2025-11-30",
+    "start": "10:00",
+    "end": "11:30",
+    "location": "The Back Garden",
+    "description": "Lend a hand keeping Hethersett tidy—join neighbours and friends for a friendly litter pick starting at 10:00am. All equipment is provided; please wear sturdy footwear and weather-ready clothing.",
+    "ctaLabel": "Email to join us",
+    "ctaHref": "mailto:info@happyhealthyhethersett.co.uk"
+  },
+  {
+    "title": "Community meetup: help us grow 100,000 trees",
+    "date": "2025-12-04",
+    "start": "18:30",
+    "end": "20:30",
+    "location": "The Kings Head Pub",
+    "description": "Hear how we have already planted over 1,500 trees locally and share ideas on how we reach our 100,000-tree goal by 2030.",
+    "ctaLabel": "Email to RSVP",
+    "ctaHref": "mailto:info@happyhealthyhethersett.co.uk"
+  },
+  {
+    "title": "HEAT Christmas wreath workshop",
+    "date": "2024-11-29",
+    "start": "10:00",
+    "end": "12:00",
+    "location": "Back Garden at the Village Hall",
+    "description": "Learn to make your own Christmas wreath to take home at this free, donation-welcome workshop. Rings are provided — please bring your own greenery, decorations, and scissors. Drinks and homemade cake will be available.",
+    "ctaLabel": "Email to book by 26 November",
+    "ctaHref": "mailto:wishart125@btinternet.com",
+    "note": "You can also ring 07518 024617 to secure your place.",
+    "phone": "07518 024617"
+  }
+]

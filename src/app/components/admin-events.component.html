@@ -1,0 +1,255 @@
+<section class="section section--alt admin" aria-labelledby="admin-title">
+  <div class="container">
+    <header class="section__header">
+      <h2 id="admin-title">Events admin</h2>
+      <p class="section__intro">
+        Manage upcoming events shown on the public homepage. Changes update immediately after you save.
+      </p>
+    </header>
+
+    <div class="admin__login card" *ngIf="!isUnlocked">
+      <p>Enter the admin password to continue.</p>
+      <div class="admin__login-form">
+        <label for="admin-password">Password</label>
+        <input
+          id="admin-password"
+          type="password"
+          [(ngModel)]="passwordInput"
+          placeholder="Enter password"
+        />
+        <button class="btn btn--primary" type="button" (click)="unlock()">Unlock</button>
+      </div>
+      <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
+    </div>
+
+    <div *ngIf="isUnlocked" class="admin__panel">
+      <div class="admin__toolbar">
+        <button class="btn btn--primary" type="button" (click)="saveChanges()">Save changes</button>
+        <button class="btn btn--secondary" type="button" (click)="toggleCreateForm()">
+          {{ showCreateForm ? 'Close create form' : 'Create new event' }}
+        </button>
+        <button class="btn btn--secondary" type="button" (click)="downloadJson()">Download JSON</button>
+        <label class="btn btn--secondary admin__upload">
+          Upload JSON
+          <input type="file" accept=".json" (change)="uploadJson($event)" />
+        </label>
+      </div>
+      <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
+      <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
+      <div class="admin__list">
+        <h3>Manage events</h3>
+        <div class="admin__table-wrapper" *ngIf="events.length; else noAdminEvents">
+          <table class="admin__table">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Location</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <ng-container *ngFor="let event of events; let i = index">
+                <tr>
+                  <td>{{ event.title }}</td>
+                  <td>{{ event.date }}</td>
+                  <td>{{ event.start }} – {{ event.end }}</td>
+                  <td>{{ event.location || '—' }}</td>
+                  <td class="admin__table-actions">
+                    <button class="btn btn--secondary" type="button" (click)="toggleDetails(i)">
+                      {{ isExpanded(i) ? 'Close' : 'Details' }}
+                    </button>
+                    <button class="btn btn--danger" type="button" (click)="deleteEvent(i)">Delete</button>
+                  </td>
+                </tr>
+              </ng-container>
+            </tbody>
+          </table>
+        </div>
+        <ng-template #noAdminEvents>
+          <div class="card">
+            <p>No events yet. Use "Create new event" to add the first one.</p>
+          </div>
+        </ng-template>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="admin__sheet-backdrop" *ngIf="showCreateForm" (click)="toggleCreateForm()">
+  <div class="admin__sheet" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <div class="admin__sheet-header">
+      <div>
+        <h3>Add new event</h3>
+        <p class="admin__hint">Complete the details and save to publish.</p>
+      </div>
+      <button class="admin__sheet-close" type="button" (click)="toggleCreateForm()">×</button>
+    </div>
+    <div class="admin__grid">
+      <div class="admin__field">
+        <label for="new-title">Title</label>
+        <input id="new-title" type="text" [(ngModel)]="newEvent.title" />
+      </div>
+      <div class="admin__field">
+        <label for="new-date">Date</label>
+        <input id="new-date" type="date" [(ngModel)]="newEvent.date" />
+      </div>
+      <div class="admin__field">
+        <label for="new-start">Start time</label>
+        <input id="new-start" type="time" [(ngModel)]="newEvent.start" />
+      </div>
+      <div class="admin__field">
+        <label for="new-end">End time</label>
+        <input id="new-end" type="time" [(ngModel)]="newEvent.end" />
+      </div>
+      <div class="admin__field">
+        <label for="new-location">Location</label>
+        <input id="new-location" type="text" [(ngModel)]="newEvent.location" />
+        <span class="admin__hint">Optional</span>
+      </div>
+      <div class="admin__field">
+        <label for="new-cta-label">CTA label</label>
+        <input id="new-cta-label" type="text" [(ngModel)]="newEvent.ctaLabel" />
+        <span class="admin__hint">Optional, but if you add a label you need a link.</span>
+      </div>
+      <div class="admin__field">
+        <label for="new-cta-href">CTA link</label>
+        <input id="new-cta-href" type="text" [(ngModel)]="newEvent.ctaHref" />
+        <span class="admin__hint">Optional, but if you add a link you need a label.</span>
+      </div>
+      <div class="admin__field">
+        <label for="new-phone">Phone (optional)</label>
+        <input id="new-phone" type="text" [(ngModel)]="newEvent.phone" />
+      </div>
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="newEvent.imageUrl">
+      <div class="admin__image-preview">
+        <img [src]="newEvent.imageUrl" [alt]="newEvent.imageAlt || newEvent.title || 'Event image'" />
+      </div>
+      <span class="admin__hint" *ngIf="isDataUrl(newEvent.imageUrl)">Uploaded image attached.</span>
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="!isDataUrl(newEvent.imageUrl)">
+      <label for="new-image-url">Image URL (optional)</label>
+      <input id="new-image-url" type="text" [(ngModel)]="newEvent.imageUrl" />
+    </div>
+    <div class="admin__field admin__field--full">
+      <label for="new-image-alt">Image alt text (optional)</label>
+      <input id="new-image-alt" type="text" [(ngModel)]="newEvent.imageAlt" />
+    </div>
+    <div class="admin__field admin__field--full admin__image-actions">
+      <label class="btn btn--secondary admin__upload admin__image-button">
+        Upload image
+        <input type="file" accept="image/*" (change)="attachImage($event, newEvent)" />
+      </label>
+      <button class="btn btn--secondary admin__image-button" type="button" (click)="removeImage(newEvent)" *ngIf="newEvent.imageUrl">
+        Remove image
+      </button>
+    </div>
+    <div class="admin__field admin__field--full">
+      <label for="new-description">Description</label>
+      <textarea id="new-description" rows="3" [(ngModel)]="newEvent.description"></textarea>
+    </div>
+    <div class="admin__field admin__field--full">
+      <label for="new-note">Note (optional)</label>
+      <textarea id="new-note" rows="2" [(ngModel)]="newEvent.note"></textarea>
+    </div>
+    <button class="btn btn--primary" type="button" (click)="addEvent()">Create event</button>
+  </div>
+</div>
+
+<div class="admin__sheet-backdrop" *ngIf="expandedIndex !== null && draftEvent" (click)="closeDetails()">
+  <div class="admin__sheet" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <div class="admin__sheet-header">
+      <div>
+        <h3>Event details</h3>
+        <p class="admin__hint">Fields are read-only until you click Edit.</p>
+      </div>
+      <button class="admin__sheet-close" type="button" (click)="closeDetails()">×</button>
+    </div>
+    <div class="admin__details-actions">
+      <button class="btn btn--secondary" type="button" (click)="startEdit()" *ngIf="!isEditing">
+        Edit
+      </button>
+      <button class="btn btn--primary" type="button" (click)="saveEdit()" *ngIf="isEditing">
+        Save
+      </button>
+    </div>
+    <div class="admin__grid" *ngIf="draftEvent as draft">
+      <div class="admin__field">
+        <label for="edit-title">Title</label>
+        <input id="edit-title" type="text" [(ngModel)]="draft.title" [disabled]="!isEditing" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-date">Date</label>
+        <input id="edit-date" type="date" [(ngModel)]="draft.date" [disabled]="!isEditing" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-start">Start time</label>
+        <input id="edit-start" type="time" [(ngModel)]="draft.start" [disabled]="!isEditing" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-end">End time</label>
+        <input id="edit-end" type="time" [(ngModel)]="draft.end" [disabled]="!isEditing" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-location">Location</label>
+        <input id="edit-location" type="text" [(ngModel)]="draft.location" [disabled]="!isEditing" />
+        <span class="admin__hint">Optional</span>
+      </div>
+      <div class="admin__field">
+        <label for="edit-cta-label">CTA label</label>
+        <input id="edit-cta-label" type="text" [(ngModel)]="draft.ctaLabel" [disabled]="!isEditing" />
+        <span class="admin__hint">Optional, but pair with a link.</span>
+      </div>
+      <div class="admin__field">
+        <label for="edit-cta-href">CTA link</label>
+        <input id="edit-cta-href" type="text" [(ngModel)]="draft.ctaHref" [disabled]="!isEditing" />
+        <span class="admin__hint">Optional, but pair with a label.</span>
+      </div>
+      <div class="admin__field">
+        <label for="edit-phone">Phone</label>
+        <input id="edit-phone" type="text" [(ngModel)]="draft.phone" [disabled]="!isEditing" />
+      </div>
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="draftEvent?.imageUrl">
+      <div class="admin__image-preview">
+        <img [src]="draftEvent.imageUrl" [alt]="draftEvent.imageAlt || draftEvent.title" />
+      </div>
+      <span class="admin__hint" *ngIf="isDataUrl(draftEvent.imageUrl)">Uploaded image attached.</span>
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="draftEvent && !isDataUrl(draftEvent.imageUrl)">
+      <label for="edit-image-url">Image URL (optional)</label>
+      <input id="edit-image-url" type="text" [(ngModel)]="draftEvent.imageUrl" [disabled]="!isEditing" />
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="draftEvent">
+      <label for="edit-image-alt">Image alt text</label>
+      <input id="edit-image-alt" type="text" [(ngModel)]="draftEvent.imageAlt" [disabled]="!isEditing" />
+    </div>
+    <div class="admin__field admin__field--full admin__image-actions" *ngIf="draftEvent">
+      <label class="btn btn--secondary admin__upload admin__image-button" [class.is-disabled]="!isEditing">
+        Upload image
+        <input type="file" accept="image/*" (change)="attachImage($event, draftEvent)" [disabled]="!isEditing" />
+      </label>
+      <button
+        class="btn btn--secondary admin__image-button"
+        type="button"
+        (click)="removeImage(draftEvent)"
+        [disabled]="!isEditing"
+        *ngIf="draftEvent.imageUrl"
+      >
+        Remove image
+      </button>
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="draftEvent">
+      <label for="edit-description">Description</label>
+      <textarea id="edit-description" rows="3" [(ngModel)]="draftEvent.description" [disabled]="!isEditing"></textarea>
+    </div>
+    <div class="admin__field admin__field--full" *ngIf="draftEvent">
+      <label for="edit-note">Note</label>
+      <textarea id="edit-note" rows="2" [(ngModel)]="draftEvent.note" [disabled]="!isEditing"></textarea>
+    </div>
+  </div>
+</div>
