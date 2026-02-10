@@ -10,50 +10,108 @@
     </header>
 
     <div class="timeline" role="list">
-      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-1-title">
-        <div class="timeline__marker" aria-hidden="true"></div>
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-1-title" #timelineEntry>
+        <div class="timeline__marker" aria-hidden="true">25 Oct 2025</div>
         <div class="timeline__content">
-          <p class="timeline__date"><time datetime="2023">2023</time></p>
-          <h3 id="timeline-1-title">Seeds of the idea</h3>
-          <p>Residents began exploring the Miyawaki method and gathered early supporters for a local pocket forest.</p>
-          <ul class="timeline__list">
-            <li>Research into native species and soil health.</li>
-            <li>Initial conversations with landowners and partners.</li>
-          </ul>
+          <time datetime="2025-10-25" class="visually-hidden">25 October 2025</time>
+          <h3 id="timeline-1-title">Work begins on the Miyawaki Forest</h3>
+          <p>Groundworks started on site, preparing the soil, fencing, and layout for dense native planting.</p>
+          <div class="timeline__gallery" aria-label="Groundworks photo gallery">
+            <figure class="timeline__photo" *ngFor="let image of workBeginsImages; let i = index">
+              <button
+                class="timeline__thumbnail"
+                type="button"
+                (click)="openLightbox(i, workBeginsImages)"
+                [attr.aria-label]="'View larger image'"
+              >
+                <img [src]="image.src" [alt]="image.alt" loading="lazy" />
+              </button>
+            </figure>
+          </div>
         </div>
       </article>
 
-      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-2-title">
-        <div class="timeline__marker" aria-hidden="true"></div>
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-2-title" #timelineEntry>
+        <div class="timeline__marker" aria-hidden="true">13 Dec 2025</div>
         <div class="timeline__content">
-          <p class="timeline__date"><time datetime="2023-05">May 2023</time></p>
-          <h3 id="timeline-2-title">Site selected and permissions secured</h3>
-          <p>The community confirmed a planting location and agreed responsibilities for long-term stewardship.</p>
-          <ul class="timeline__list">
-            <li>Access, safety checks, and boundary planning.</li>
-            <li>Shared plan for water, tools, and ongoing care.</li>
-          </ul>
+          <time datetime="2025-12-13" class="visually-hidden">13 December 2025</time>
+          <h3 id="timeline-2-title">Planting day and hurdle fencing underway</h3>
+          <p>And at the Miyawaki site, work begins on the hurdle fencing.</p>
+          <p>840 native trees, 31 species, 5 hours, loads of volunteers and one Back Pocket Forest. Well done everyone!!!!</p>
+          <dl class="timeline__stats" aria-label="Planting day highlights">
+            <div>
+              <dt>Trees</dt>
+              <dd class="timeline__stat-number" data-target="840">0</dd>
+            </div>
+            <div>
+              <dt>Species</dt>
+              <dd class="timeline__stat-number" data-target="31">0</dd>
+            </div>
+            <div>
+              <dt>Hours</dt>
+              <dd class="timeline__stat-number" data-target="5">0</dd>
+            </div>
+          </dl>
+          <div class="timeline__gallery" aria-label="Planting day photo gallery">
+            <figure class="timeline__photo" *ngFor="let image of plantingDayImages; let i = index">
+              <button
+                class="timeline__thumbnail"
+                type="button"
+                (click)="openLightbox(i, plantingDayImages)"
+                [attr.aria-label]="'View larger image'"
+              >
+                <img [src]="image.src" [alt]="image.alt" loading="lazy" />
+              </button>
+            </figure>
+          </div>
         </div>
       </article>
 
-      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-3-title">
-        <div class="timeline__marker" aria-hidden="true"></div>
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-3-title" #timelineEntry>
+        <div class="timeline__marker" aria-hidden="true">20 Dec 2025</div>
         <div class="timeline__content">
-          <p class="timeline__date"><time datetime="2023-10">October 2023</time></p>
-          <h3 id="timeline-3-title">Community planting day</h3>
-          <p>Volunteers planted dense, native saplings together, creating a rich, layered mini-forest.</p>
-          <ul class="timeline__list">
-            <li>Planting teams and on-site training.</li>
-            <li>Mulch, watering, and protective guards installed.</li>
-          </ul>
+          <time datetime="2025-12-20" class="visually-hidden">20 December 2025</time>
+          <h3 id="timeline-3-title">We continued making the fence around the Back Pocket Forest</h3>
+          <div class="timeline__gallery" aria-label="Hurdle fencing progress gallery">
+            <figure class="timeline__photo" *ngFor="let image of fencingDayImages; let i = index">
+              <button
+                class="timeline__thumbnail"
+                type="button"
+                (click)="openLightbox(i, fencingDayImages)"
+                [attr.aria-label]="'View larger image'"
+              >
+                <img [src]="image.src" [alt]="image.alt" loading="lazy" />
+              </button>
+            </figure>
+          </div>
         </div>
       </article>
 
-      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-4-title">
-        <div class="timeline__marker" aria-hidden="true"></div>
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-4-title" #timelineEntry>
+        <div class="timeline__marker" aria-hidden="true">11 Jan 2025</div>
         <div class="timeline__content">
-          <p class="timeline__date"><time datetime="2024-03">March 2024</time></p>
-          <h3 id="timeline-4-title">First spring care cycle</h3>
+          <time datetime="2025-01-11" class="visually-hidden">11 January 2025</time>
+          <h3 id="timeline-4-title">Fencing completed</h3>
+          <p>The final hurdle panels went in, enclosing the young woodland and marking a key milestone.</p>
+          <div class="timeline__gallery" aria-label="Fencing completed photo gallery">
+            <figure class="timeline__photo" *ngFor="let image of fencingCompletedImages; let i = index">
+              <button
+                class="timeline__thumbnail"
+                type="button"
+                (click)="openLightbox(i, fencingCompletedImages)"
+                [attr.aria-label]="'View larger image'"
+              >
+                <img [src]="image.src" [alt]="image.alt" loading="lazy" />
+              </button>
+            </figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-5-title">
+        <div class="timeline__marker" aria-hidden="true">Mar<br>2024</div>
+        <div class="timeline__content">
+          <h3 id="timeline-5-title">First spring care cycle</h3>
           <p>Weeding, watering, and soil checks helped young trees establish strong roots.</p>
           <ul class="timeline__list">
             <li>Volunteer rota launched for monthly care.</li>
@@ -62,11 +120,10 @@
         </div>
       </article>
 
-      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-5-title">
-        <div class="timeline__marker" aria-hidden="true"></div>
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-6-title">
+        <div class="timeline__marker" aria-hidden="true">Sep<br>2024</div>
         <div class="timeline__content">
-          <p class="timeline__date"><time datetime="2024-09">September 2024</time></p>
-          <h3 id="timeline-5-title">First-year growth highlights</h3>
+          <h3 id="timeline-6-title">First-year growth highlights</h3>
           <p>Canopy density increased and new wildlife sightings showed early biodiversity gains.</p>
           <ul class="timeline__list">
             <li>Pollinator monitoring and photo logs.</li>
@@ -75,11 +132,10 @@
         </div>
       </article>
 
-      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-6-title">
-        <div class="timeline__marker" aria-hidden="true"></div>
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-7-title">
+        <div class="timeline__marker" aria-hidden="true">2025</div>
         <div class="timeline__content">
-          <p class="timeline__date"><time datetime="2025">2025</time></p>
-          <h3 id="timeline-6-title">Growing into a thriving woodland</h3>
+          <h3 id="timeline-7-title">Growing into a thriving woodland</h3>
           <p>Ongoing care, storytelling, and partnerships keep the pocket forest healthy and expanding.</p>
           <ul class="timeline__list">
             <li>Volunteer training for long-term stewardship.</li>
@@ -87,6 +143,29 @@
           </ul>
         </div>
       </article>
+    </div>
+  </div>
+
+  <div
+    *ngIf="lightboxOpen"
+    class="lightbox"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Photo gallery"
+    (click)="closeLightbox()"
+    (keydown)="handleKeydown($event)"
+    tabindex="0"
+    #lightboxContainer
+  >
+    <div class="lightbox__dialog" (click)="$event.stopPropagation()">
+      <button class="lightbox__close" type="button" (click)="closeLightbox()" aria-label="Close gallery">×</button>
+      <div class="lightbox__body">
+        <button class="lightbox__nav lightbox__nav--prev" type="button" (click)="prevImage()" aria-label="Previous image">‹</button>
+        <figure class="lightbox__figure">
+          <img [src]="activeGallery[activeIndex]?.src" [alt]="activeGallery[activeIndex]?.alt" />
+        </figure>
+        <button class="lightbox__nav lightbox__nav--next" type="button" (click)="nextImage()" aria-label="Next image">›</button>
+      </div>
     </div>
   </div>
 </section>

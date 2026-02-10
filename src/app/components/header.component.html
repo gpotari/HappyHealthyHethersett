@@ -16,13 +16,13 @@
     </button>
     <nav class="primary-nav" aria-label="Primary">
       <ul id="primary-navigation" class="nav-list" [class.is-open]="navOpen">
-        <li><a href="#home" (click)="closeNav()">Home</a></li>
-        <li><a href="#news" (click)="closeNav()">News</a></li>
-        <li><a href="#miyawaki-timeline" (click)="closeNav()">Miyawaki timeline</a></li>
-        <li><a href="#events" (click)="closeNav()">Upcoming events</a></li>
-        <li><a href="#projects" (click)="closeNav()">Our projects</a></li>
-        <li><a href="#stories" (click)="closeNav()">Stories</a></li>
-        <li><a href="#contact" (click)="closeNav()">Contact</a></li>
+        <li><a [routerLink]="['/']" (click)="closeNav()">Home</a></li>
+        <li><a [routerLink]="['/']" fragment="news" (click)="closeNav()">News</a></li>
+        <li><a [routerLink]="['/miyawaki-timeline']" (click)="closeNav()">Miyawaki timeline</a></li>
+        <li><a [routerLink]="['/']" fragment="events" (click)="closeNav()">Upcoming events</a></li>
+        <li><a [routerLink]="['/']" fragment="projects" (click)="closeNav()">Our projects</a></li>
+        <li><a [routerLink]="['/']" fragment="stories" (click)="closeNav()">Stories</a></li>
+        <li><a [routerLink]="['/']" fragment="contact" (click)="closeNav()">Contact</a></li>
       </ul>
     </nav>
   </div>
