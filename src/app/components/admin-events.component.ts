@@ -12,7 +12,6 @@ import { EventsService } from '../services/events.service';
   styleUrl: './admin-events.component.css'
 })
 export class AdminEventsComponent {
-  private readonly adminPassword = 'H3Leaf';
   passwordInput = '';
   isUnlocked = false;
   errorMessage = '';
@@ -28,13 +27,23 @@ export class AdminEventsComponent {
 
   unlock(): void {
     this.errorMessage = '';
-    if (this.passwordInput !== this.adminPassword) {
-      this.errorMessage = 'Incorrect password. Please try again.';
+    const password = this.passwordInput.trim();
+    if (!password) {
+      this.errorMessage = 'Please enter the admin password.';
       return;
     }
-    this.isUnlocked = true;
-    this.passwordInput = '';
-    this.loadEvents();
+    this.eventsService.verifyPassword(password).subscribe({
+      next: () => {
+        this.isUnlocked = true;
+        this.passwordInput = '';
+        this.eventsService.loadEvents().subscribe(() => {
+          this.loadEvents();
+        });
+      },
+      error: () => {
+        this.errorMessage = 'Incorrect password. Please try again.';
+      }
+    });
   }
 
   addEvent(): void {
@@ -45,32 +54,29 @@ export class AdminEventsComponent {
     }
     this.errorMessage = '';
     const updated = [...this.events, { ...this.newEvent }];
-    this.eventsService.setEvents(updated);
-    this.events = this.sortLatestFirst(this.eventsService.getSnapshot());
-    this.newEvent = this.emptyEvent();
-    this.showCreateForm = false;
-    this.statusMessage = 'Event added and saved.';
+    this.saveEvents(updated, 'Event added and saved.', () => {
+      this.newEvent = this.emptyEvent();
+      this.showCreateForm = false;
+    });
   }
 
   deleteEvent(index: number): void {
     this.statusMessage = '';
     const updated = this.events.filter((_, i) => i !== index);
-    this.eventsService.setEvents(updated);
-    this.events = this.sortLatestFirst(this.eventsService.getSnapshot());
-    this.expandedIndex = null;
-    this.isEditing = false;
-    this.draftEvent = null;
-    this.statusMessage = 'Event deleted and saved.';
+    this.saveEvents(updated, 'Event deleted and saved.', () => {
+      this.expandedIndex = null;
+      this.isEditing = false;
+      this.draftEvent = null;
+    });
   }
 
   saveChanges(): void {
     this.errorMessage = '';
-    this.eventsService.setEvents(this.events);
-    this.events = this.sortLatestFirst(this.eventsService.getSnapshot());
-    this.expandedIndex = null;
-    this.isEditing = false;
-    this.draftEvent = null;
-    this.statusMessage = 'Events saved. The public page updates immediately.';
+    this.saveEvents(this.events, 'Events saved. The public page updates immediately.', () => {
+      this.expandedIndex = null;
+      this.isEditing = false;
+      this.draftEvent = null;
+    });
   }
 
   downloadJson(): void {
@@ -97,9 +103,8 @@ export class AdminEventsComponent {
       if (!Array.isArray(parsed)) {
         throw new Error('Invalid file format');
       }
-      this.events = this.sortLatestFirst(parsed.map((item) => ({ ...item })));
-      this.eventsService.setEvents(this.events);
-      this.statusMessage = 'Events loaded from file and saved.';
+      const normalized = this.sortLatestFirst(parsed.map((item) => ({ ...item })));
+      this.saveEvents(normalized, 'Events loaded from file and saved.');
     } catch {
       this.errorMessage = 'Unable to read that file. Please upload a valid events JSON.';
     } finally {
@@ -187,12 +192,11 @@ export class AdminEventsComponent {
     }
     const updated = [...this.events];
     updated[this.expandedIndex] = { ...this.draftEvent };
-    this.eventsService.setEvents(updated);
-    this.events = this.sortLatestFirst(this.eventsService.getSnapshot());
-    this.expandedIndex = null;
-    this.isEditing = false;
-    this.draftEvent = null;
-    this.statusMessage = 'Event updated and saved.';
+    this.saveEvents(updated, 'Event updated and saved.', () => {
+      this.expandedIndex = null;
+      this.isEditing = false;
+      this.draftEvent = null;
+    });
   }
 
   isExpanded(index: number): boolean {
@@ -201,6 +205,25 @@ export class AdminEventsComponent {
 
   private loadEvents(): void {
     this.events = this.sortLatestFirst(this.eventsService.getSnapshot());
+  }
+
+  private saveEvents(
+    updated: EventItem[],
+    successMessage: string,
+    afterSave?: () => void
+  ): void {
+    this.eventsService.setEvents(updated).subscribe({
+      next: (events) => {
+        this.events = this.sortLatestFirst(events);
+        this.statusMessage = successMessage;
+        if (afterSave) {
+          afterSave();
+        }
+      },
+      error: () => {
+        this.errorMessage = 'Unable to save changes. Check the server or password.';
+      }
+    });
   }
 
   private emptyEvent(): EventItem {
