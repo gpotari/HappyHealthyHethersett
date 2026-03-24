@@ -23,6 +23,11 @@
   background: none;
   cursor: pointer;
   display: block;
+  width: 100%;
+}
+
+.gallery__thumbnail picture {
+  display: block;
 }
 
 .gallery__thumbnail img {
@@ -82,6 +87,10 @@
 .lightbox__figure {
   margin: 0;
   text-align: center;
+}
+
+.lightbox__figure picture {
+  display: block;
 }
 
 .lightbox__figure img {

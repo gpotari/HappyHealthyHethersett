@@ -9,7 +9,10 @@
     <div class="gallery" role="list">
       <figure class="gallery__item" role="listitem" *ngFor="let image of images; let i = index">
         <button class="gallery__thumbnail" type="button" (click)="openLightbox(i)" [attr.aria-label]="'View larger image: ' + image.caption">
-          <img [src]="image.src" [alt]="image.alt" />
+          <picture>
+            <source type="image/webp" [srcset]="image.thumbSrc" />
+            <img [src]="image.fallbackSrc" [alt]="image.alt" loading="lazy" decoding="async" width="640" height="480" />
+          </picture>
         </button>
         <figcaption>{{ image.caption }}</figcaption>
       </figure>
@@ -32,7 +35,17 @@
       <div class="lightbox__body">
         <button class="lightbox__nav lightbox__nav--prev" type="button" (click)="prevImage()" aria-label="Previous image">‹</button>
         <figure class="lightbox__figure">
-          <img [src]="images[activeIndex]?.src" [alt]="images[activeIndex]?.alt" />
+          <picture>
+            <source type="image/webp" [srcset]="images[activeIndex]?.lightboxSrc" />
+            <img
+              [src]="images[activeIndex]?.fallbackSrc"
+              [alt]="images[activeIndex]?.alt"
+              loading="eager"
+              decoding="async"
+              width="1600"
+              height="1200"
+            />
+          </picture>
           <figcaption>{{ images[activeIndex]?.caption }}</figcaption>
         </figure>
         <button class="lightbox__nav lightbox__nav--next" type="button" (click)="nextImage()" aria-label="Next image">›</button>

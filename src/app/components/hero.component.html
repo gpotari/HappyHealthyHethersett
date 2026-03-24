@@ -1,11 +1,22 @@
 <section class="hero" aria-labelledby="hero-title">
-  <img
-    class="hero__image"
-    src="assets/images/header.png"
-    alt=""
-    role="presentation"
-    loading="lazy"
-  />
+  <picture class="hero__media" aria-hidden="true">
+    <source
+      type="image/webp"
+      srcset="assets/images/header-960.webp 960w, assets/images/header-1600.webp 1600w, assets/images/header-2400.webp 2400w"
+      sizes="100vw"
+    />
+    <img
+      class="hero__image"
+      src="assets/images/header.png"
+      alt=""
+      role="presentation"
+      width="2944"
+      height="1440"
+      loading="eager"
+      decoding="async"
+      fetchpriority="high"
+    />
+  </picture>
   <div class="container hero__inner">
     <div class="hero__copy">
       <h1 id="hero-title" class="hero__title">Happy Healthy Hethersett</h1>
