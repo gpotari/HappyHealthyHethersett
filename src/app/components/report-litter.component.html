@@ -1,0 +1,143 @@
+<main id="main-content" class="report-page">
+  <section class="section report-hero" aria-labelledby="report-litter-title">
+    <div class="container">
+      <header class="report-hero__header">
+        <p class="report-hero__eyebrow">Community care</p>
+        <h1 id="report-litter-title">Report litter in Hethersett</h1>
+        <p>
+          Pin the approximate spot on the village map, add any helpful details, and send the report through to Happy
+          Healthy Hethersett.
+        </p>
+      </header>
+
+      <div class="report-layout">
+        <section class="report-map-card" aria-labelledby="report-map-title">
+          <div class="report-card__header">
+            <p class="report-card__eyebrow">Step 1</p>
+            <h2 id="report-map-title">Choose the location</h2>
+            <p>Drag to move around Hethersett, zoom in for detail, then tap or click the exact place where litter was found.</p>
+          </div>
+
+          <button class="use-location-button" type="button" (click)="useCurrentLocation()" [disabled]="locating">
+            {{ locating ? 'Finding location...' : 'Use my current location' }}
+          </button>
+          <p class="location-status" *ngIf="locationStatus" aria-live="polite">{{ locationStatus }}</p>
+
+          <div
+            #reportMap
+            class="report-map"
+            role="button"
+            tabindex="0"
+            aria-label="Interactive map of Hethersett. Drag to pan, use the zoom controls, and select where litter was found."
+            (pointerdown)="onMapPointerDown($event)"
+            (pointermove)="onMapPointerMove($event)"
+            (pointerup)="onMapPointerUp($event)"
+            (pointercancel)="onMapPointerUp($event)"
+            (wheel)="onMapWheel($event)"
+            (keydown)="handleMapKeydown($event)"
+          >
+            <div class="report-map__tiles" aria-hidden="true">
+              <img
+                *ngFor="let tile of visibleTiles"
+                class="report-map__tile"
+                [src]="tile.url"
+                alt=""
+                draggable="false"
+                [style.left.px]="tile.left"
+                [style.top.px]="tile.top"
+                width="256"
+                height="256"
+              />
+            </div>
+
+            <div class="report-map__controls" aria-label="Map controls">
+              <button type="button" (click)="zoomIn(); $event.stopPropagation()" [disabled]="zoom >= maxZoom" aria-label="Zoom in">+</button>
+              <button type="button" (click)="zoomOut(); $event.stopPropagation()" [disabled]="zoom <= minZoom" aria-label="Zoom out">−</button>
+              <button type="button" (click)="resetMap(); $event.stopPropagation()" aria-label="Reset map view">Reset</button>
+            </div>
+
+            <span
+              *ngIf="selectedPoint"
+              class="report-map__pin"
+              [style.left.px]="mapPositionFor(selectedPoint).x"
+              [style.top.px]="mapPositionFor(selectedPoint).y"
+              aria-hidden="true"
+            ></span>
+
+            <div class="report-map__centre" aria-hidden="true"></div>
+            <p class="report-map__attribution">
+              © OpenStreetMap contributors © CARTO
+            </p>
+          </div>
+
+          <p class="selected-location" aria-live="polite">{{ selectedLocationText }}</p>
+        </section>
+
+        <section class="report-form-card" aria-labelledby="report-details-title">
+          <div class="report-card__header">
+            <p class="report-card__eyebrow">Step 2</p>
+            <h2 id="report-details-title">Add details</h2>
+            <p>Details are optional, but they help volunteers find and prioritise the report.</p>
+          </div>
+
+          <form class="report-form" (ngSubmit)="submitReport()">
+            <fieldset class="litter-amount">
+              <legend>How much litter is there?</legend>
+              <label>
+                <input type="radio" name="litterAmount" value="Small amount" [(ngModel)]="litterAmount" />
+                <span>Small</span>
+              </label>
+              <label>
+                <input type="radio" name="litterAmount" value="Medium amount" [(ngModel)]="litterAmount" />
+                <span>Medium</span>
+              </label>
+              <label>
+                <input type="radio" name="litterAmount" value="Large amount" [(ngModel)]="litterAmount" />
+                <span>Large</span>
+              </label>
+            </fieldset>
+
+            <div class="form-field">
+              <label for="litter-comment">What did you find?</label>
+              <textarea
+                id="litter-comment"
+                name="comment"
+                rows="5"
+                [(ngModel)]="comment"
+                placeholder="For example: bags by the footpath, broken glass near the bench, fly-tipping at the verge."
+              ></textarea>
+            </div>
+
+            <div class="form-field">
+              <label for="report-contact">Your contact details <span>optional</span></label>
+              <input
+                id="report-contact"
+                name="contact"
+                type="text"
+                [(ngModel)]="contact"
+                autocomplete="email"
+                placeholder="Email or phone if you are happy to be contacted"
+              />
+            </div>
+
+            <button class="btn btn--primary" type="submit" [disabled]="!selectedPoint || submitting">
+              {{ submitting ? 'Submitting report...' : 'Submit report' }}
+            </button>
+          </form>
+
+          <p class="report-submit-error" *ngIf="submitError">{{ submitError }}</p>
+
+          <div class="report-summary" *ngIf="reportPrepared && selectedPoint">
+            <h3>Report submitted</h3>
+            <p>The report has been saved for the admin team.</p>
+            <div class="report-summary__actions">
+              <button class="btn btn--secondary" type="button" (click)="copyReport()">Copy summary</button>
+            </div>
+            <p class="copy-status" *ngIf="copyStatus">{{ copyStatus }}</p>
+            <pre>{{ reportSummary }}</pre>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+</main>

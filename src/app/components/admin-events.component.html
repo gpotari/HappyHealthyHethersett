@@ -1,9 +1,9 @@
 <section class="section section--alt admin" aria-labelledby="admin-title">
   <div class="container">
     <header class="section__header">
-      <h2 id="admin-title">Events admin</h2>
+      <h2 id="admin-title">Admin dashboard</h2>
       <p class="section__intro">
-        Manage upcoming events shown on the public homepage. Changes update immediately after you save.
+        Manage public events and review litter reports from one simple workspace.
       </p>
     </header>
 
@@ -22,59 +22,140 @@
       <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
     </div>
 
-    <div *ngIf="isUnlocked" class="admin__panel">
-      <div class="admin__toolbar">
-        <button class="btn btn--primary" type="button" (click)="saveChanges()">Save changes</button>
-        <button class="btn btn--secondary" type="button" (click)="toggleCreateForm()">
-          {{ showCreateForm ? 'Close create form' : 'Create new event' }}
+    <div *ngIf="isUnlocked" class="admin-shell">
+      <aside class="admin-sidebar" aria-label="Admin sections">
+        <p class="admin-sidebar__label">Manage</p>
+        <button
+          class="admin-sidebar__item"
+          type="button"
+          [class.is-active]="activeAdminSection === 'events'"
+          (click)="showSection('events')"
+        >
+          <span>Events</span>
+          <strong>{{ events.length }}</strong>
         </button>
-        <button class="btn btn--secondary" type="button" (click)="downloadJson()">Download JSON</button>
-        <label class="btn btn--secondary admin__upload">
-          Upload JSON
-          <input type="file" accept=".json" (change)="uploadJson($event)" />
-        </label>
-      </div>
-      <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
-      <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
+        <button
+          class="admin-sidebar__item"
+          type="button"
+          [class.is-active]="activeAdminSection === 'reports'"
+          (click)="showSection('reports')"
+        >
+          <span>Litter reports</span>
+          <strong>{{ reports.length }}</strong>
+        </button>
+      </aside>
 
-      <div class="admin__list">
-        <h3>Manage events</h3>
-        <div class="admin__table-wrapper" *ngIf="events.length; else noAdminEvents">
-          <table class="admin__table">
-            <thead>
-              <tr>
-                <th>Event</th>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Location</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <ng-container *ngFor="let event of events; let i = index">
-                <tr>
-                  <td>{{ event.title }}</td>
-                  <td>{{ event.date }}</td>
-                  <td>{{ event.start }} – {{ event.end }}</td>
-                  <td>{{ event.location || '—' }}</td>
-                  <td class="admin__table-actions">
-                    <button class="btn btn--secondary" type="button" (click)="toggleDetails(i)">
-                      {{ isExpanded(i) ? 'Close' : 'Details' }}
-                    </button>
-                    <button class="btn btn--danger" type="button" (click)="deleteEvent(i)">Delete</button>
-                  </td>
-                </tr>
-              </ng-container>
-            </tbody>
-          </table>
-        </div>
-        <ng-template #noAdminEvents>
-          <div class="card">
-            <p>No events yet. Use "Create new event" to add the first one.</p>
+      <div class="admin-main">
+        <section class="admin-section" *ngIf="activeAdminSection === 'events'" aria-labelledby="events-admin-title">
+          <div class="admin-section__header">
+            <div>
+              <p class="admin-section__eyebrow">Events</p>
+              <h3 id="events-admin-title">Manage events</h3>
+              <p class="admin__hint">Create, edit and publish upcoming events shown on the homepage.</p>
+            </div>
+            <div class="admin__toolbar">
+              <button class="btn btn--primary" type="button" (click)="saveChanges()">Save changes</button>
+              <button class="btn btn--secondary" type="button" (click)="toggleCreateForm()">
+                {{ showCreateForm ? 'Close create form' : 'Create event' }}
+              </button>
+              <button class="btn btn--secondary" type="button" (click)="downloadJson()">Download JSON</button>
+              <label class="btn btn--secondary admin__upload">
+                Upload JSON
+                <input type="file" accept=".json" (change)="uploadJson($event)" />
+              </label>
+            </div>
           </div>
-        </ng-template>
-      </div>
 
+          <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
+          <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
+          <div class="admin__table-wrapper" *ngIf="events.length; else noAdminEvents">
+            <table class="admin__table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Location</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <ng-container *ngFor="let event of events; let i = index">
+                  <tr>
+                    <td>{{ event.title }}</td>
+                    <td>{{ event.date }}</td>
+                    <td>{{ event.start }} – {{ event.end }}</td>
+                    <td>{{ event.location || '—' }}</td>
+                    <td class="admin__table-actions">
+                      <button class="btn btn--secondary" type="button" (click)="toggleDetails(i)">
+                        Details
+                      </button>
+                      <button class="btn btn--danger" type="button" (click)="deleteEvent(i)">Delete</button>
+                    </td>
+                  </tr>
+                </ng-container>
+              </tbody>
+            </table>
+          </div>
+          <ng-template #noAdminEvents>
+            <div class="card">
+              <p>No events yet. Use "Create event" to add the first one.</p>
+            </div>
+          </ng-template>
+        </section>
+
+        <section class="admin-section" *ngIf="activeAdminSection === 'reports'" aria-labelledby="reports-admin-title">
+          <div class="admin-section__header">
+            <div>
+              <p class="admin-section__eyebrow">Reports</p>
+              <h3 id="reports-admin-title">Litter reports</h3>
+              <p class="admin__hint">Review submissions from the public litter reporting form.</p>
+            </div>
+            <button class="btn btn--secondary" type="button" (click)="refreshReports()" [disabled]="reportsLoading">
+              {{ reportsLoading ? 'Loading reports...' : 'Refresh reports' }}
+            </button>
+          </div>
+
+          <p class="admin__error" *ngIf="reportsError">{{ reportsError }}</p>
+
+          <div class="admin__reports-grid" *ngIf="reports.length; else noReports">
+            <article class="admin__report-card" *ngFor="let report of reports">
+              <div class="admin__report-header">
+                <div>
+                  <p class="admin__report-date">{{ formatReportDate(report) }}</p>
+                  <h4>{{ report.amount || 'Amount not specified' }}</h4>
+                </div>
+                <a [href]="reportMapLink(report)" target="_blank" rel="noopener">Open map</a>
+              </div>
+              <dl class="admin__report-details">
+                <div>
+                  <dt>Location</dt>
+                  <dd>{{ report.locationLabel }}</dd>
+                </div>
+                <div>
+                  <dt>Coordinates</dt>
+                  <dd>{{ report.lat | number:'1.5-5' }}, {{ report.lng | number:'1.5-5' }}</dd>
+                </div>
+                <div>
+                  <dt>Details</dt>
+                  <dd>{{ report.comment || 'No details provided.' }}</dd>
+                </div>
+                <div>
+                  <dt>Contact</dt>
+                  <dd>{{ report.contact || 'Not provided.' }}</dd>
+                </div>
+              </dl>
+            </article>
+          </div>
+
+          <ng-template #noReports>
+            <div class="card">
+              <p>{{ reportsLoading ? 'Loading reports...' : 'No litter reports have been submitted yet.' }}</p>
+            </div>
+          </ng-template>
+        </section>
+      </div>
     </div>
   </div>
 </section>

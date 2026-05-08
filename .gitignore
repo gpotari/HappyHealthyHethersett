@@ -1,6 +1,10 @@
 /dist
 /node_modules
 /.angular
+/publish
+*.zip
+.DS_Store
+server/data/litter-reports.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

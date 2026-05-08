@@ -1,9 +1,12 @@
 <header class="site-header" id="home">
   <div class="container nav-bar">
-    <div class="site-branding">
-      <span class="site-logo" aria-hidden="true">🌱</span>
+    <a class="site-branding" [routerLink]="['/']" (click)="closeNav()" aria-label="Happy Healthy Hethersett home">
+      <span class="site-logo" aria-hidden="true">
+        <span class="site-logo__leaf site-logo__leaf--one"></span>
+        <span class="site-logo__leaf site-logo__leaf--two"></span>
+      </span>
       <p class="site-title">Happy Healthy Hethersett</p>
-    </div>
+    </a>
     <button
       class="nav-toggle"
       type="button"
@@ -18,11 +21,11 @@
       <ul id="primary-navigation" class="nav-list" [class.is-open]="navOpen">
         <li><a [routerLink]="['/']" (click)="closeNav()">Home</a></li>
         <li><a [routerLink]="['/']" fragment="news" (click)="closeNav()">News</a></li>
-        <li><a [routerLink]="['/miyawaki-timeline']" (click)="closeNav()">Miyawaki timeline</a></li>
-        <li><a [routerLink]="['/']" fragment="events" (click)="closeNav()">Upcoming events</a></li>
-        <li><a [routerLink]="['/']" fragment="projects" (click)="closeNav()">Our projects</a></li>
-        <li><a [routerLink]="['/']" fragment="stories" (click)="closeNav()">Stories</a></li>
+        <li><a [routerLink]="['/miyawaki-timeline']" (click)="closeNav()">Timeline</a></li>
+        <li><a [routerLink]="['/']" fragment="events" (click)="closeNav()">Events</a></li>
+        <li><a [routerLink]="['/']" fragment="projects" (click)="closeNav()">Projects</a></li>
         <li><a [routerLink]="['/']" fragment="contact" (click)="closeNav()">Contact</a></li>
+        <li><a class="nav-list__cta" [routerLink]="['/report-litter']" (click)="closeNav()">Report litter</a></li>
       </ul>
     </nav>
   </div>

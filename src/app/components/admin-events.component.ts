@@ -1,29 +1,38 @@
 import { Component } from '@angular/core';
-import { NgFor, NgIf } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { EventItem } from '../models/event-item';
+import { LitterReport } from '../models/litter-report';
 import { EventsService } from '../services/events.service';
+import { LitterReportsService } from '../services/litter-reports.service';
 
 @Component({
   selector: 'app-admin-events',
   standalone: true,
-  imports: [FormsModule, NgFor, NgIf],
+  imports: [CommonModule, FormsModule],
   templateUrl: './admin-events.component.html',
   styleUrl: './admin-events.component.css'
 })
 export class AdminEventsComponent {
   passwordInput = '';
   isUnlocked = false;
+  activeAdminSection: 'events' | 'reports' = 'events';
   errorMessage = '';
   statusMessage = '';
   events: EventItem[] = [];
+  reports: LitterReport[] = [];
+  reportsLoading = false;
+  reportsError = '';
   newEvent: EventItem = this.emptyEvent();
   showCreateForm = false;
   expandedIndex: number | null = null;
   isEditing = false;
   draftEvent: EventItem | null = null;
 
-  constructor(private eventsService: EventsService) {}
+  constructor(
+    private eventsService: EventsService,
+    private litterReportsService: LitterReportsService
+  ) {}
 
   unlock(): void {
     this.errorMessage = '';
@@ -35,10 +44,12 @@ export class AdminEventsComponent {
     this.eventsService.verifyPassword(password).subscribe({
       next: () => {
         this.isUnlocked = true;
+        this.litterReportsService.setAdminPassword(password);
         this.passwordInput = '';
         this.eventsService.loadEvents().subscribe(() => {
           this.loadEvents();
         });
+        this.loadReports();
       },
       error: () => {
         this.errorMessage = 'Incorrect password. Please try again.';
@@ -203,8 +214,59 @@ export class AdminEventsComponent {
     return this.expandedIndex === index;
   }
 
+  showSection(section: 'events' | 'reports'): void {
+    this.activeAdminSection = section;
+    this.statusMessage = '';
+    this.errorMessage = '';
+
+    if (section === 'reports') {
+      this.closeDetails();
+      this.showCreateForm = false;
+      this.loadReports();
+    }
+  }
+
+  refreshReports(): void {
+    this.loadReports();
+  }
+
+  formatReportDate(report: LitterReport): string {
+    if (!report.createdAt) {
+      return 'Unknown date';
+    }
+
+    return new Intl.DateTimeFormat('en-GB', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    }).format(new Date(report.createdAt));
+  }
+
+  reportMapLink(report: LitterReport): string {
+    if (report.mapLink) {
+      return report.mapLink;
+    }
+
+    return `https://www.openstreetmap.org/?mlat=${report.lat.toFixed(5)}&mlon=${report.lng.toFixed(5)}#map=17/${report.lat.toFixed(5)}/${report.lng.toFixed(5)}`;
+  }
+
   private loadEvents(): void {
     this.events = this.sortLatestFirst(this.eventsService.getSnapshot());
+  }
+
+  private loadReports(): void {
+    this.reportsLoading = true;
+    this.reportsError = '';
+
+    this.litterReportsService.loadReports().subscribe({
+      next: (reports) => {
+        this.reports = reports;
+        this.reportsLoading = false;
+      },
+      error: () => {
+        this.reportsError = 'Unable to load litter reports.';
+        this.reportsLoading = false;
+      }
+    });
   }
 
   private saveEvents(

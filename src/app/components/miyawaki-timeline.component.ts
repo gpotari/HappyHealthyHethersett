@@ -2,7 +2,9 @@ import { CommonModule } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, QueryList, ViewChild, ViewChildren } from '@angular/core';
 
 type TimelineImage = {
-  src: string;
+  thumbSrc: string;
+  lightboxSrc: string;
+  fallbackSrc: string;
   alt: string;
 };
 
@@ -15,71 +17,30 @@ type TimelineImage = {
 })
 export class MiyawakiTimelineComponent {
   workBeginsImages: TimelineImage[] = [
-    {
-      src: 'assets/images/miyawaki/work-begins-01.jpg',
-      alt: 'Excavator preparing soil beside the tennis courts.'
-    },
-    {
-      src: 'assets/images/miyawaki/work-begins-02.jpg',
-      alt: 'Cleared grass plot with temporary fencing and materials.'
-    },
-    {
-      src: 'assets/images/miyawaki/work-begins-03.jpg',
-      alt: 'Fresh compost and woodchip delivered for soil improvement.'
-    },
-    {
-      src: 'assets/images/miyawaki/work-begins-04.jpg',
-      alt: 'Leveled soil plot ready for planting.'
-    },
-    {
-      src: 'assets/images/miyawaki/work-begins-05.jpg',
-      alt: 'Excavator bucket cutting into the turf during preparation.'
-    }
+    this.timelineImage('work-begins-01', 'Village Hall field marked out before the pocket forest groundwork begins.'),
+    this.timelineImage('work-begins-02', 'Prepared pocket forest plot with fencing and soil improvement underway.'),
+    this.timelineImage('work-begins-03', 'Excavator lifting turf during the first stage of ground preparation.'),
+    this.timelineImage('work-begins-04', 'Compost and soil improver ready beside the prepared planting area.'),
+    this.timelineImage('work-begins-05', 'Rich compost delivered to support the future native woodland.')
   ];
 
   plantingDayImages: TimelineImage[] = [
-    {
-      src: 'assets/images/miyawaki/planting-01.jpg',
-      alt: 'Volunteers planting young trees across the site.'
-    },
-    {
-      src: 'assets/images/miyawaki/planting-02.jpg',
-      alt: 'Planting teams working along the edge of the plot.'
-    },
-    {
-      src: 'assets/images/miyawaki/planting-03.jpg',
-      alt: 'Families and volunteers planting across the site.'
-    },
-    {
-      src: 'assets/images/miyawaki/planting-04.jpg',
-      alt: 'Volunteers planting near the hurdle fencing.'
-    },
-    {
-      src: 'assets/images/miyawaki/planting-05.jpg',
-      alt: 'Freshly planted whips with volunteers in the background.'
-    }
+    this.timelineImage('planting-01', 'Volunteers planting young native trees across the pocket forest site.'),
+    this.timelineImage('planting-02', 'Planting teams working along the edge of the prepared plot.'),
+    this.timelineImage('planting-03', 'Families and volunteers planting native tree whips together.'),
+    this.timelineImage('planting-04', 'Volunteers placing young trees into the prepared soil.'),
+    this.timelineImage('planting-05', 'Freshly planted whips with volunteers working in the background.'),
+    this.timelineImage('planting-06', 'The pocket forest site after the community planting session.')
   ];
 
   fencingDayImages: TimelineImage[] = [
-    {
-      src: 'assets/images/miyawaki/fencing-01.jpg',
-      alt: 'Volunteers weaving hurdle fencing along the forest edge.'
-    },
-    {
-      src: 'assets/images/miyawaki/fencing-02.jpg',
-      alt: 'Hurdle fencing taking shape around the Back Pocket Forest.'
-    }
+    this.timelineImage('fencing-01', 'Volunteers weaving hurdle fencing along the forest edge.'),
+    this.timelineImage('fencing-02', 'Hurdle fencing taking shape around the Back Pocket Forest.')
   ];
 
   fencingCompletedImages: TimelineImage[] = [
-    {
-      src: 'assets/images/miyawaki/fencing-complete-01.jpg',
-      alt: 'Completed hurdle fencing encircling the pocket forest.'
-    },
-    {
-      src: 'assets/images/miyawaki/fencing-complete-02.jpg',
-      alt: 'Finished fence line with the newly planted woodland behind it.'
-    }
+    this.timelineImage('fencing-complete-01', 'Completed hurdle fencing encircling the pocket forest.'),
+    this.timelineImage('fencing-complete-02', 'Finished fence line with the newly planted woodland behind it.')
   ];
 
   activeIndex = 0;
@@ -176,5 +137,14 @@ export class MiyawakiTimelineComponent {
 
       requestAnimationFrame(tick);
     });
+  }
+
+  private timelineImage(name: string, alt: string): TimelineImage {
+    return {
+      thumbSrc: `assets/images/miyawaki/optimized/${name}-thumb.webp`,
+      lightboxSrc: `assets/images/miyawaki/optimized/${name}-lightbox.webp`,
+      fallbackSrc: `assets/images/miyawaki/${name}.jpg`,
+      alt
+    };
   }
 }
