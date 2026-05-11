@@ -5,7 +5,8 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
-    "server": "node server/server.js",
+    "server": "/opt/homebrew/opt/dotnet@8/libexec/dotnet run --project api --urls http://localhost:5000",
+    "server:node": "node server/server.js",
     "start:proxy": "ng serve --proxy-config proxy.conf.json"
   },
   "dependencies": {

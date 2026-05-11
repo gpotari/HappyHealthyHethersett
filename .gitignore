@@ -2,6 +2,9 @@
 /node_modules
 /.angular
 /publish
+/api/bin
+/api/obj
+/api/appsettings.Development.json
 *.zip
 .DS_Store
 server/data/litter-reports.json

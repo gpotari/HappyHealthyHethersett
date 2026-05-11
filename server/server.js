@@ -9,6 +9,8 @@ const dataFile =
   process.env.EVENTS_FILE || path.join(__dirname, 'data', 'events.json');
 const reportsFile =
   process.env.LITTER_REPORTS_FILE || path.join(__dirname, 'data', 'litter-reports.json');
+const litterPickEventsFile =
+  process.env.LITTER_PICK_EVENTS_FILE || path.join(__dirname, 'data', 'litter-pick-events.json');
 const adminPassword = process.env.ADMIN_PASSWORD || 'H3Leaf';
 
 const ensureDataDir = async () => {
@@ -59,6 +61,31 @@ const writeReports = async (reports) => {
   const tempFile = `${reportsFile}.tmp`;
   await fs.writeFile(tempFile, JSON.stringify(reports, null, 2), 'utf-8');
   await fs.rename(tempFile, reportsFile);
+};
+
+const ensureLitterPickEventsDir = async () => {
+  const dir = path.dirname(litterPickEventsFile);
+  await fs.mkdir(dir, { recursive: true });
+};
+
+const readLitterPickEvents = async () => {
+  try {
+    const raw = await fs.readFile(litterPickEventsFile, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+};
+
+const writeLitterPickEvents = async (events) => {
+  await ensureLitterPickEventsDir();
+  const tempFile = `${litterPickEventsFile}.tmp`;
+  await fs.writeFile(tempFile, JSON.stringify(events, null, 2), 'utf-8');
+  await fs.rename(tempFile, litterPickEventsFile);
 };
 
 const cleanString = (value, maxLength = 1000) => {
@@ -157,6 +184,30 @@ app.get('/api/litter-reports', requireAuth, async (_req, res) => {
     return res.json(reports);
   } catch (error) {
     return res.status(500).json({ error: 'Failed to load litter reports' });
+  }
+});
+
+app.get('/api/litter-pick-events', requireAuth, async (_req, res) => {
+  try {
+    const events = await readLitterPickEvents();
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(events);
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to load litter pick events' });
+  }
+});
+
+app.put('/api/litter-pick-events', requireAuth, async (req, res) => {
+  const events = req.body;
+  if (!Array.isArray(events)) {
+    return res.status(400).json({ error: 'Invalid litter pick events payload' });
+  }
+
+  try {
+    await writeLitterPickEvents(events);
+    return res.json(events);
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to save litter pick events' });
   }
 });
 

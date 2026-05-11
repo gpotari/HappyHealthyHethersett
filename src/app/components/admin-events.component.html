@@ -7,23 +7,116 @@
       </p>
     </header>
 
-    <div class="admin__login card" *ngIf="!isUnlocked">
-      <p>Enter the admin password to continue.</p>
-      <div class="admin__login-form">
-        <label for="admin-password">Password</label>
-        <input
-          id="admin-password"
-          type="password"
-          [(ngModel)]="passwordInput"
-          placeholder="Enter password"
-        />
-        <button class="btn btn--primary" type="button" (click)="unlock()">Unlock</button>
+    <div class="admin__login" *ngIf="!isUnlocked">
+      <div class="admin-auth__header">
+        <div>
+          <p class="admin-section__eyebrow">Secure access</p>
+          <h3>{{ authMode === 'signIn' ? 'Sign in' : 'Register' }}</h3>
+        </div>
+        <div class="admin-auth__tabs" role="tablist" aria-label="Admin access options">
+          <button type="button" [class.is-active]="authMode === 'signIn'" (click)="showAuthMode('signIn')">
+            Sign in
+          </button>
+          <button type="button" [class.is-active]="authMode === 'register'" (click)="showAuthMode('register')">
+            Register
+          </button>
+        </div>
       </div>
+
+      <p class="admin-auth__intro">
+        {{
+          authMode === 'signIn'
+            ? 'Use your approved admin account to manage site content.'
+            : 'Create an account request. An admin must enable it before sign in.'
+        }}
+      </p>
+
+      <div class="admin__login-form" *ngIf="authMode === 'signIn'">
+        <div class="admin__field">
+          <label for="admin-email">Email</label>
+          <input
+            id="admin-email"
+            type="email"
+            [(ngModel)]="emailInput"
+            placeholder="name@example.com"
+            autocomplete="email"
+          />
+        </div>
+        <div class="admin__field">
+          <label for="admin-password">Password</label>
+          <input
+            id="admin-password"
+            type="password"
+            [(ngModel)]="passwordInput"
+            placeholder="Enter password"
+            autocomplete="current-password"
+          />
+        </div>
+        <label class="admin__checkbox">
+          <input type="checkbox" [(ngModel)]="rememberMe" />
+          <span>Keep me signed in</span>
+        </label>
+        <button class="btn btn--primary admin-auth__submit" type="button" (click)="unlock()" [disabled]="loginLoading">
+          {{ loginLoading ? 'Signing in...' : 'Sign in' }}
+        </button>
+      </div>
+
+      <div class="admin__login-form admin__login-form--register" *ngIf="authMode === 'register'">
+        <div class="admin__field">
+          <label for="register-name">Name</label>
+          <input
+            id="register-name"
+            type="text"
+            [(ngModel)]="registerNameInput"
+            placeholder="Your name"
+            autocomplete="name"
+          />
+        </div>
+        <div class="admin__field">
+          <label for="register-email">Email</label>
+          <input
+            id="register-email"
+            type="email"
+            [(ngModel)]="registerEmailInput"
+            placeholder="name@example.com"
+            autocomplete="email"
+          />
+        </div>
+        <div class="admin__field">
+          <label for="register-password">Password</label>
+          <input
+            id="register-password"
+            type="password"
+            [(ngModel)]="registerPasswordInput"
+            placeholder="At least 10 characters"
+            autocomplete="new-password"
+          />
+        </div>
+        <div class="admin__field">
+          <label for="register-confirm-password">Confirm password</label>
+          <input
+            id="register-confirm-password"
+            type="password"
+            [(ngModel)]="registerConfirmPasswordInput"
+            placeholder="Repeat password"
+            autocomplete="new-password"
+          />
+        </div>
+        <button class="btn btn--primary admin-auth__submit" type="button" (click)="registerUser()" [disabled]="registerLoading">
+          {{ registerLoading ? 'Registering...' : 'Request account' }}
+        </button>
+      </div>
+
+      <p class="admin__status" *ngIf="registerMessage">{{ registerMessage }}</p>
       <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
     </div>
 
     <div *ngIf="isUnlocked" class="admin-shell">
       <aside class="admin-sidebar" aria-label="Admin sections">
+        <div class="admin-userbar" *ngIf="currentUser">
+          <span>{{ currentUser.displayName || currentUser.email }}</span>
+          <button class="btn btn--secondary" type="button" (click)="logout()">Sign out</button>
+        </div>
         <p class="admin-sidebar__label">Manage</p>
         <button
           class="admin-sidebar__item"
@@ -42,6 +135,25 @@
         >
           <span>Litter reports</span>
           <strong>{{ reports.length }}</strong>
+        </button>
+        <button
+          class="admin-sidebar__item"
+          type="button"
+          [class.is-active]="activeAdminSection === 'litterPicks'"
+          (click)="showSection('litterPicks')"
+        >
+          <span>Litter picks</span>
+          <strong>{{ litterPickEvents.length }}</strong>
+        </button>
+        <button
+          class="admin-sidebar__item"
+          type="button"
+          [class.is-active]="activeAdminSection === 'users'"
+          (click)="showSection('users')"
+          *ngIf="canManageUsers"
+        >
+          <span>Users</span>
+          <strong>{{ users.length }}</strong>
         </button>
       </aside>
 
@@ -155,10 +267,202 @@
             </div>
           </ng-template>
         </section>
+
+        <section class="admin-section" *ngIf="activeAdminSection === 'litterPicks'" aria-labelledby="litter-picks-admin-title">
+          <div class="admin-section__header">
+            <div>
+              <p class="admin-section__eyebrow">Litter picks</p>
+              <h3 id="litter-picks-admin-title">Manage litter pick events</h3>
+              <p class="admin__hint">Create events, add teams, record bags and volunteers, then close events into reports.</p>
+            </div>
+            <div class="admin__toolbar">
+              <button class="btn btn--secondary" type="button" (click)="loadLitterPickEvents()" [disabled]="litterPicksLoading">
+                {{ litterPicksLoading ? 'Loading...' : 'Refresh' }}
+              </button>
+              <button class="btn btn--primary" type="button" (click)="toggleLitterPickCreateForm()">
+                {{ showLitterPickCreateForm ? 'Close create form' : 'Create litter pick' }}
+              </button>
+            </div>
+          </div>
+
+          <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
+          <p class="admin__error" *ngIf="errorMessage || litterPicksError">{{ errorMessage || litterPicksError }}</p>
+
+          <div class="admin__table-wrapper" *ngIf="litterPickEvents.length; else noLitterPickEvents">
+            <table class="admin__table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Coverage</th>
+                  <th>Bags</th>
+                  <th>Volunteers</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let event of litterPickEvents; let i = index">
+                  <td>{{ event.title }}</td>
+                  <td>{{ formatLitterPickDate(event) }}</td>
+                  <td>
+                    <span class="admin__pill" [class.admin__pill--closed]="event.status === 'closed'">
+                      {{ event.status }}
+                    </span>
+                  </td>
+                  <td>{{ coveragePercent(event) }}%</td>
+                  <td>{{ totalBags(event) }}</td>
+                  <td>{{ totalVolunteers(event) }}</td>
+                  <td class="admin__table-actions">
+                    <button class="btn btn--secondary" type="button" (click)="toggleLitterPickDetails(i)">
+                      {{ event.status === 'closed' ? 'Report' : 'Manage' }}
+                    </button>
+                    <button class="btn btn--danger" type="button" (click)="deleteLitterPickEvent(i)">Delete</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ng-template #noLitterPickEvents>
+            <div class="card">
+              <p>{{ litterPicksLoading ? 'Loading litter pick events...' : 'No litter pick events yet.' }}</p>
+            </div>
+          </ng-template>
+        </section>
+
+        <section class="admin-section" *ngIf="activeAdminSection === 'users'" aria-labelledby="users-admin-title">
+          <div class="admin-section__header">
+            <div>
+              <p class="admin-section__eyebrow">Users</p>
+              <h3 id="users-admin-title">Manage users</h3>
+              <p class="admin__hint">Create accounts, assign roles and reset local passwords.</p>
+            </div>
+            <div class="admin__toolbar">
+              <button class="btn btn--secondary" type="button" (click)="toggleUserCreateForm()">
+                Create user
+              </button>
+              <button
+                class="btn btn--primary"
+                type="button"
+                (click)="saveUserChanges()"
+                [disabled]="usersSaving || !hasUnsavedUserChanges()"
+              >
+                {{ usersSaving ? 'Saving...' : 'Save changes' }}
+              </button>
+              <button class="btn btn--secondary" type="button" (click)="loadUsers()" [disabled]="usersLoading || usersSaving">
+                {{ usersLoading ? 'Loading...' : 'Refresh' }}
+              </button>
+            </div>
+          </div>
+
+          <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
+          <p class="admin__error" *ngIf="usersError">{{ usersError }}</p>
+
+          <div class="admin__table-wrapper" *ngIf="users.length; else noUsers">
+            <table class="admin__table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Last login</th>
+                  <th>Password</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let user of users">
+                  <td>
+                    <strong>{{ user.displayName || user.email }}</strong><br />
+                    <span class="admin__muted">{{ user.email }}</span>
+                  </td>
+                  <td>
+                    <select
+                      [ngModel]="selectedUserRole(user)"
+                      (ngModelChange)="setUserRole(user, $event)"
+                      [disabled]="currentUser?.id === user.id"
+                    >
+                      <option value="Editor">Editor</option>
+                      <option value="Admin">Admin</option>
+                    </select>
+                  </td>
+                  <td>
+                    <span
+                      class="admin__pill"
+                      [class.admin__pill--closed]="selectedUserDisabled(user)"
+                      [class.admin__pill--pending]="hasPendingUserDisabled(user)"
+                    >
+                      {{ selectedUserDisabled(user) ? 'disabled' : 'active' }}
+                    </span>
+                  </td>
+                  <td>{{ formatUserDate(user.lastLoginAt) }}</td>
+                  <td>
+                    <input
+                      type="password"
+                      [(ngModel)]="resetPasswords[user.id]"
+                      placeholder="New password"
+                      autocomplete="new-password"
+                    />
+                  </td>
+                  <td class="admin__table-actions">
+                    <button
+                      class="btn btn--secondary"
+                      type="button"
+                      (click)="toggleUserDisabled(user)"
+                      [disabled]="currentUser?.id === user.id"
+                    >
+                      {{ selectedUserDisabled(user) ? 'Enable' : 'Disable' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ng-template #noUsers>
+            <div class="card">
+              <p>{{ usersLoading ? 'Loading users...' : 'No users found.' }}</p>
+            </div>
+          </ng-template>
+        </section>
       </div>
     </div>
   </div>
 </section>
+
+<div class="admin__sheet-backdrop" *ngIf="showUserCreateForm" (click)="toggleUserCreateForm()">
+  <div class="admin__sheet admin__sheet--user-create" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <div class="admin__sheet-header">
+      <div>
+        <h3>Create user</h3>
+        <p class="admin__hint">Add a local account and choose its starting role.</p>
+      </div>
+      <button class="admin__sheet-close" type="button" (click)="toggleUserCreateForm()">×</button>
+    </div>
+    <div class="admin-user-create">
+      <div class="admin__field">
+        <label for="new-user-email">Email</label>
+        <input id="new-user-email" type="email" [(ngModel)]="newUser.email" autocomplete="off" />
+      </div>
+      <div class="admin__field">
+        <label for="new-user-name">Display name</label>
+        <input id="new-user-name" type="text" [(ngModel)]="newUser.displayName" autocomplete="off" />
+      </div>
+      <div class="admin__field">
+        <label for="new-user-password">Temporary password</label>
+        <input id="new-user-password" type="password" [(ngModel)]="newUser.password" autocomplete="new-password" />
+      </div>
+      <div class="admin__field">
+        <label for="new-user-role">Role</label>
+        <select id="new-user-role" [(ngModel)]="newUser.role">
+          <option value="Editor">Editor</option>
+          <option value="Admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <p class="admin__error" *ngIf="usersError">{{ usersError }}</p>
+    <button class="btn btn--primary" type="button" (click)="addUser()">Create user</button>
+  </div>
+</div>
 
 <div class="admin__sheet-backdrop" *ngIf="showCreateForm" (click)="toggleCreateForm()">
   <div class="admin__sheet" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
@@ -238,6 +542,95 @@
       <textarea id="new-note" rows="2" [(ngModel)]="newEvent.note"></textarea>
     </div>
     <button class="btn btn--primary" type="button" (click)="addEvent()">Create event</button>
+  </div>
+</div>
+
+<div class="admin__sheet-backdrop" *ngIf="showLitterPickCreateForm" (click)="toggleLitterPickCreateForm()">
+  <div class="admin__sheet admin__sheet--litter-create" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <div class="admin__sheet-header">
+      <div>
+        <h3>Add litter pick event</h3>
+        <p class="admin__hint">Create the event first, then add team coverage on the Hethersett map.</p>
+      </div>
+      <button class="admin__sheet-close" type="button" (click)="toggleLitterPickCreateForm()">×</button>
+    </div>
+    <div class="admin__grid admin__grid--litter-create">
+      <div class="admin__field">
+        <label for="new-pick-title">Title</label>
+        <input id="new-pick-title" type="text" [(ngModel)]="newLitterPickEvent.title" />
+      </div>
+      <div class="admin__field">
+        <label for="new-pick-date">Date</label>
+        <input id="new-pick-date" type="date" [(ngModel)]="newLitterPickEvent.date" />
+      </div>
+      <div class="admin__field">
+        <label for="new-pick-start">Start time</label>
+        <input id="new-pick-start" type="time" [(ngModel)]="newLitterPickEvent.start" />
+      </div>
+      <div class="admin__field">
+        <label for="new-pick-end">End time</label>
+        <input id="new-pick-end" type="time" [(ngModel)]="newLitterPickEvent.end" />
+      </div>
+    </div>
+    <div class="meeting-picker">
+      <div class="meeting-picker__marker" aria-hidden="true">{{ defaultMeetingPoint.icon }}</div>
+      <div>
+        <label>Meeting point</label>
+        <strong>{{ meetingPointDisplay(newLitterPickEvent) }}</strong>
+        <span>{{ meetingPointCoordinates(newLitterPickEvent) }}</span>
+      </div>
+      <button class="btn btn--secondary" type="button" (click)="startMeetingPointPick('new')">
+        {{ meetingPointTarget === 'new' ? 'Click the map' : 'Pick on map' }}
+      </button>
+    </div>
+    <div class="admin__field admin__field--full">
+      <label for="new-pick-notes">Notes</label>
+      <textarea id="new-pick-notes" rows="3" [(ngModel)]="newLitterPickEvent.notes"></textarea>
+    </div>
+    <div class="admin__map-preview">
+      <div
+        #litterPickMap
+        class="litter-tile-map litter-tile-map--preview"
+        role="application"
+        aria-label="OpenStreetMap view of Hethersett"
+        [class.is-picking-meeting]="meetingPointTarget === 'new'"
+        (pointerdown)="onLitterPickMapPointerDown($event)"
+        (pointermove)="onLitterPickMapPointerMove($event)"
+        (pointerup)="onLitterPickMapPointerUp($event)"
+        (pointercancel)="onLitterPickMapPointerUp($event)"
+        (wheel)="onLitterPickMapWheel($event)"
+      >
+        <div class="litter-tile-map__tiles" aria-hidden="true">
+          <img
+            *ngFor="let tile of litterPickVisibleTiles"
+            class="litter-tile-map__tile"
+            [src]="tile.url"
+            alt=""
+            draggable="false"
+            [style.left.px]="tile.left"
+            [style.top.px]="tile.top"
+            [style.width.px]="tile.size"
+            [style.height.px]="tile.size"
+            width="256"
+            height="256"
+          />
+        </div>
+        <div class="litter-tile-map__controls" aria-label="Map controls">
+          <button type="button" (click)="zoomLitterPickMapIn(); $event.stopPropagation()" [disabled]="litterPickZoom >= maxLitterPickZoom" aria-label="Zoom in">+</button>
+          <button type="button" (click)="zoomLitterPickMapOut(); $event.stopPropagation()" [disabled]="litterPickZoom <= minLitterPickZoom" aria-label="Zoom out">−</button>
+          <button type="button" (click)="resetLitterPickMap(); $event.stopPropagation()" aria-label="Reset map view">Reset</button>
+        </div>
+        <svg class="litter-tile-map__overlay" [attr.viewBox]="litterPickMapViewBox" aria-hidden="true">
+          <polygon class="litter-tile-map__boundary" [attr.points]="litterPickBoundaryPixelPointsAttribute"></polygon>
+          <g class="litter-map__meeting-point" [attr.transform]="meetingPointMarkerTransform(newLitterPickEvent)">
+            <circle r="18"></circle>
+            <text text-anchor="middle" dominant-baseline="central" y="1">{{ defaultMeetingPoint.icon }}</text>
+          </g>
+        </svg>
+        <p class="litter-tile-map__attribution">© OpenStreetMap contributors © CARTO</p>
+      </div>
+    </div>
+    <button class="btn btn--primary" type="button" (click)="addLitterPickEvent()">Create litter pick</button>
   </div>
 </div>
 
@@ -331,6 +724,322 @@
     <div class="admin__field admin__field--full" *ngIf="draftEvent">
       <label for="edit-note">Note</label>
       <textarea id="edit-note" rows="2" [(ngModel)]="draftEvent.note" [disabled]="!isEditing"></textarea>
+    </div>
+  </div>
+</div>
+
+<div class="admin__sheet-backdrop" *ngIf="expandedLitterPickIndex !== null && draftLitterPickEvent" (click)="closeLitterPickDetails()">
+  <div class="admin__sheet admin__sheet--wide" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <div class="admin__sheet-header">
+      <div>
+        <h3>{{ draftLitterPickEvent.status === 'closed' ? 'Litter pick report' : 'Litter pick event' }}</h3>
+        <p class="admin__hint">
+          {{ draftLitterPickEvent.status === 'closed' ? 'This event is closed and read-only.' : 'Edit event details, add teams and record returns.' }}
+        </p>
+      </div>
+      <button class="admin__sheet-close" type="button" (click)="closeLitterPickDetails()">×</button>
+    </div>
+
+    <div class="admin__details-actions">
+      <button
+        class="btn btn--secondary"
+        type="button"
+        (click)="startLitterPickEdit()"
+        *ngIf="!isEditingLitterPick && draftLitterPickEvent.status === 'open'"
+      >
+        Edit
+      </button>
+      <button class="btn btn--primary" type="button" (click)="saveLitterPickEdit()" *ngIf="isEditingLitterPick">
+        Save
+      </button>
+      <button class="btn btn--secondary" type="button" (click)="downloadLitterPickReport()">
+        PDF report
+      </button>
+      <button
+        class="btn btn--danger"
+        type="button"
+        (click)="closeLitterPickEvent()"
+        *ngIf="draftLitterPickEvent.status === 'open'"
+      >
+        Close event
+      </button>
+    </div>
+
+    <div class="admin__report-summary" *ngIf="draftLitterPickEvent.status === 'closed'">
+      <div>
+        <span>Total bags</span>
+        <strong>{{ totalBags(draftLitterPickEvent) }}</strong>
+      </div>
+      <div>
+        <span>Volunteers</span>
+        <strong>{{ totalVolunteers(draftLitterPickEvent) }}</strong>
+      </div>
+      <div>
+        <span>Hethersett covered</span>
+        <strong>{{ coveragePercent(draftLitterPickEvent) }}%</strong>
+      </div>
+    </div>
+
+    <div class="admin__grid">
+      <div class="admin__field">
+        <label for="edit-pick-title">Title</label>
+        <input id="edit-pick-title" type="text" [(ngModel)]="draftLitterPickEvent.title" [disabled]="!isEditingLitterPick" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-pick-date">Date</label>
+        <input id="edit-pick-date" type="date" [(ngModel)]="draftLitterPickEvent.date" [disabled]="!isEditingLitterPick" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-pick-start">Start time</label>
+        <input id="edit-pick-start" type="time" [(ngModel)]="draftLitterPickEvent.start" [disabled]="!isEditingLitterPick" />
+      </div>
+      <div class="admin__field">
+        <label for="edit-pick-end">End time</label>
+        <input id="edit-pick-end" type="time" [(ngModel)]="draftLitterPickEvent.end" [disabled]="!isEditingLitterPick" />
+      </div>
+    </div>
+    <div class="meeting-picker">
+      <div class="meeting-picker__marker" aria-hidden="true">{{ defaultMeetingPoint.icon }}</div>
+      <div>
+        <label>Meeting point</label>
+        <strong>{{ meetingPointDisplay(draftLitterPickEvent) }}</strong>
+        <span>{{ meetingPointCoordinates(draftLitterPickEvent) }}</span>
+      </div>
+      <button
+        class="btn btn--secondary"
+        type="button"
+        (click)="startMeetingPointPick('draft')"
+        [disabled]="draftLitterPickEvent.status === 'closed'"
+      >
+        {{ meetingPointTarget === 'draft' ? 'Click the map' : 'Pick on map' }}
+      </button>
+    </div>
+    <div class="admin__field admin__field--full">
+      <label for="edit-pick-notes">Notes</label>
+      <textarea id="edit-pick-notes" rows="2" [(ngModel)]="draftLitterPickEvent.notes" [disabled]="!isEditingLitterPick"></textarea>
+    </div>
+
+    <div class="litter-workspace">
+      <div class="litter-workspace__map">
+        <div class="litter-map__toolbar">
+          <div>
+            <strong>{{ coveragePercent(draftLitterPickEvent) }}%</strong>
+            <span>covered</span>
+          </div>
+          <p>
+            {{
+              draftLitterPickEvent.status === 'closed'
+                ? 'Map is read-only.'
+                : litterPickMapMode === 'draw'
+                  ? 'Trace the team coverage area on the map.'
+                  : litterPickMapMode === 'meeting'
+                    ? 'Click the map to set the meeting point.'
+                  : litterPickMapMode === 'edit'
+                    ? 'Drag a point to reshape, or drag the centre marker to move the team area.'
+                  : 'Move the map, or add a team to draw coverage.'
+            }}
+          </p>
+        </div>
+        <div class="litter-map__actions">
+          <button class="btn btn--secondary" type="button" (click)="toggleLitterPickWorkspaceFullscreen()">
+            {{ litterPickWorkspaceFullscreen ? 'Exit full screen' : 'Full screen' }}
+          </button>
+        </div>
+        <div class="litter-workspace__board" [class.is-fullscreen]="litterPickWorkspaceFullscreen">
+          <button
+            class="litter-fullscreen-exit"
+            type="button"
+            (click)="toggleLitterPickWorkspaceFullscreen()"
+            *ngIf="litterPickWorkspaceFullscreen"
+            aria-label="Exit full screen map"
+          >
+            ×
+          </button>
+          <div
+            #litterPickMap
+            class="litter-tile-map"
+            role="application"
+            aria-label="Hethersett litter pick coverage map. Add a team, then trace its coverage area."
+            [class.is-panning]="panState"
+            [class.is-drawing]="isEditingLitterPick && litterPickMapMode === 'draw'"
+            [class.is-editing-area]="isEditingLitterPick && litterPickMapMode === 'edit'"
+            [class.is-picking-meeting]="meetingPointTarget === 'draft'"
+            (pointerdown)="onLitterPickMapPointerDown($event)"
+            (pointermove)="onLitterPickMapPointerMove($event)"
+            (pointerup)="onLitterPickMapPointerUp($event)"
+            (pointercancel)="onLitterPickMapPointerUp($event)"
+            (pointerleave)="cancelAreaDraw()"
+            (wheel)="onLitterPickMapWheel($event)"
+          >
+            <div class="litter-tile-map__tiles" aria-hidden="true">
+              <img
+                *ngFor="let tile of litterPickVisibleTiles"
+                class="litter-tile-map__tile"
+                [src]="tile.url"
+                alt=""
+                draggable="false"
+                [style.left.px]="tile.left"
+                [style.top.px]="tile.top"
+                [style.width.px]="tile.size"
+                [style.height.px]="tile.size"
+                width="256"
+                height="256"
+              />
+            </div>
+            <div class="litter-tile-map__controls" aria-label="Map controls">
+              <button type="button" (click)="zoomLitterPickMapIn(); $event.stopPropagation()" [disabled]="litterPickZoom >= maxLitterPickZoom" aria-label="Zoom in">+</button>
+              <button type="button" (click)="zoomLitterPickMapOut(); $event.stopPropagation()" [disabled]="litterPickZoom <= minLitterPickZoom" aria-label="Zoom out">−</button>
+              <button type="button" (click)="resetLitterPickMap(); $event.stopPropagation()" aria-label="Reset map view">Reset</button>
+            </div>
+            <div class="litter-tile-map__actions" aria-label="Team drawing actions">
+              <button
+                class="litter-map-add-team"
+                type="button"
+                (click)="startNewTeamArea(); $event.stopPropagation()"
+                [disabled]="draftLitterPickEvent.status === 'closed' || !hasAvailableTeamSticker()"
+                [attr.title]="hasAvailableTeamSticker() ? 'Add a new team coverage area' : 'All 40 team stickers have been used'"
+                aria-label="Add a new team coverage area"
+              >
+                + Team
+              </button>
+              <span *ngIf="isEditingLitterPick && !hasAvailableTeamSticker()">All stickers used</span>
+              <span *ngIf="isEditingLitterPick && litterPickMapMode === 'draw'">Drawing</span>
+            </div>
+            <svg class="litter-tile-map__overlay" [attr.viewBox]="litterPickMapViewBox" aria-hidden="true">
+              <polygon class="litter-tile-map__boundary" [attr.points]="litterPickBoundaryPixelPointsAttribute"></polygon>
+              <g class="litter-map__meeting-point" [attr.transform]="meetingPointMarkerTransform(draftLitterPickEvent)">
+                <circle r="18"></circle>
+                <text text-anchor="middle" dominant-baseline="central" y="1">{{ defaultMeetingPoint.icon }}</text>
+              </g>
+              <polygon
+                *ngFor="let area of draftLitterPickEvent.areas"
+                class="litter-map__area"
+                [class.is-active]="area.id === activeAreaId"
+                [attr.points]="areaPolygonPointsAttribute(area)"
+                (pointerdown)="selectArea(area.id); $event.stopPropagation()"
+                (click)="selectArea(area.id); $event.stopPropagation()"
+              ></polygon>
+              <g
+                *ngFor="let area of draftLitterPickEvent.areas"
+                class="litter-map__sticker"
+                [class.is-active]="area.id === activeAreaId"
+                [attr.transform]="areaStickerTransform(area)"
+                (pointerdown)="selectArea(area.id); $event.stopPropagation()"
+                (click)="selectArea(area.id); $event.stopPropagation()"
+              >
+                <circle r="16" [attr.fill]="area.stickerTint" [attr.stroke]="area.stickerStroke"></circle>
+                <text text-anchor="middle" dominant-baseline="central" y="1">{{ area.stickerIcon }}</text>
+              </g>
+              <ng-container *ngFor="let area of draftLitterPickEvent.areas">
+                <g *ngIf="isEditingLitterPick && area.id === editingAreaId" class="litter-map__edit-controls">
+                  <circle
+                    class="litter-map__move-handle"
+                    [attr.cx]="areaMoveHandlePosition(area).x"
+                    [attr.cy]="areaMoveHandlePosition(area).y"
+                    r="13"
+                    (pointerdown)="beginAreaMoveDrag($event, area.id); $event.stopPropagation()"
+                  ></circle>
+                  <circle
+                    *ngFor="let handle of areaEditHandlePositions(area); let pointIndex = index"
+                    class="litter-map__vertex-handle"
+                    [attr.cx]="handle.x"
+                    [attr.cy]="handle.y"
+                    r="7"
+                    (pointerdown)="beginAreaVertexDrag($event, area.id, pointIndex); $event.stopPropagation()"
+                  ></circle>
+                </g>
+              </ng-container>
+              <polyline
+                *ngIf="draftAreaPoints.length"
+                class="litter-map__area litter-map__area--draft"
+                [attr.points]="draftAreaPolygonPointsAttribute()"
+              ></polyline>
+            </svg>
+            <p class="litter-tile-map__attribution">© OpenStreetMap contributors © CARTO</p>
+          </div>
+
+          <div class="litter-workspace__areas">
+            <div class="litter-area-list" *ngIf="draftLitterPickEvent.areas.length; else noPickAreas">
+              <article
+                class="litter-area-card"
+                *ngFor="let area of draftLitterPickEvent.areas"
+                [class.is-active]="area.id === activeAreaId"
+                [attr.data-litter-area-id]="area.id"
+                tabindex="-1"
+                (click)="selectArea(area.id)"
+              >
+                <div class="litter-area-card__header">
+                  <div
+                    class="litter-area-card__sticker"
+                    [style.background]="area.stickerTint"
+                    [style.border-color]="area.stickerStroke"
+                    [style.color]="area.stickerStroke"
+                    [title]="area.stickerLabel"
+                    aria-hidden="true"
+                  >
+                    {{ area.stickerIcon }}
+                  </div>
+                  <input type="text" [(ngModel)]="area.label" [disabled]="!isEditingLitterPick" aria-label="Team label" />
+                  <button
+                    class="litter-icon-btn litter-icon-btn--edit"
+                    [class.is-active]="editingAreaId === area.id"
+                    type="button"
+                    (click)="toggleAreaEdit(area.id); $event.stopPropagation()"
+                    [disabled]="draftLitterPickEvent.status === 'closed'"
+                    [attr.aria-label]="editingAreaId === area.id ? 'Finish editing team area' : 'Edit team area'"
+                    [attr.title]="editingAreaId === area.id ? 'Done editing area' : 'Edit area'"
+                  >
+                    <svg *ngIf="editingAreaId !== area.id" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                    <svg *ngIf="editingAreaId === area.id" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5" />
+                    </svg>
+                  </button>
+                  <button
+                    class="litter-icon-btn litter-icon-btn--delete"
+                    type="button"
+                    (click)="removeArea(area.id); $event.stopPropagation()"
+                    [disabled]="!isEditingLitterPick"
+                    aria-label="Delete team"
+                    title="Delete team"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="m6 6 1 15h10l1-15" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="admin__grid admin__grid--compact litter-area-card__stats">
+                  <div class="admin__field">
+                    <label [for]="'bags-' + area.id">Bags</label>
+                    <input [id]="'bags-' + area.id" type="number" min="0" [(ngModel)]="area.bags" [disabled]="!isEditingLitterPick" />
+                  </div>
+                  <div class="admin__field">
+                    <label [for]="'volunteers-' + area.id">Volunteers</label>
+                    <input [id]="'volunteers-' + area.id" type="number" min="0" [(ngModel)]="area.volunteers" [disabled]="!isEditingLitterPick" />
+                  </div>
+                </div>
+                <div class="admin__field">
+                  <label [for]="'area-notes-' + area.id">Notes</label>
+                  <textarea [id]="'area-notes-' + area.id" rows="2" [(ngModel)]="area.notes" [disabled]="!isEditingLitterPick"></textarea>
+                </div>
+                <p class="admin__hint">Approx. {{ areaCoveragePercent(area) }}% of Hethersett.</p>
+              </article>
+            </div>
+            <ng-template #noPickAreas>
+              <div class="litter-empty">
+                <p>{{ isEditingLitterPick ? 'Use + Team on the map to add the first team.' : 'No team areas were added.' }}</p>
+              </div>
+            </ng-template>
+          </div>
+        </div>
+        <p class="admin__hint">Boundary source: {{ boundarySource }}</p>
+      </div>
     </div>
   </div>
 </div>

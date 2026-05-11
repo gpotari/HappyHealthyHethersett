@@ -127,47 +127,10 @@ img {
 }
 
 .site-logo {
-  position: relative;
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--green-120);
-  border: 1px solid rgba(35, 96, 68, 0.16);
-}
-
-.site-logo::after {
-  content: "";
-  position: absolute;
-  left: 16px;
-  top: 8px;
-  width: 2px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--green-700);
-  transform: rotate(32deg);
-  transform-origin: bottom;
-}
-
-.site-logo__leaf {
-  position: absolute;
-  width: 12px;
-  height: 18px;
-  border-radius: 12px 12px 2px 12px;
-  background: var(--green-500);
-}
-
-.site-logo__leaf--one {
-  left: 7px;
-  top: 8px;
-  transform: rotate(-58deg);
-}
-
-.site-logo__leaf--two {
-  right: 7px;
-  top: 6px;
-  transform: rotate(34deg);
-  background: #7bbd73;
+  width: 58px;
+  height: 46px;
+  object-fit: contain;
 }
 
 .site-title {
@@ -1044,8 +1007,8 @@ textarea:focus {
   }
 
   .site-logo {
-    width: 31px;
-    height: 31px;
+    width: 50px;
+    height: 40px;
   }
 
   .site-title {
