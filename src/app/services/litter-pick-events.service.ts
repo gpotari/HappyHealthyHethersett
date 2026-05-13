@@ -43,6 +43,7 @@ export class LitterPickEventsService {
   private cloneEvent(event: LitterPickEvent): LitterPickEvent {
     return {
       ...event,
+      photos: (event.photos || []).map((photo) => ({ ...photo })),
       areas: (event.areas || []).map((area) => ({ ...area }))
     };
   }

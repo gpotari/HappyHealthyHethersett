@@ -1,10 +1,11 @@
-import { AfterViewChecked, Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { AfterViewChecked, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { forkJoin, Subscription } from 'rxjs';
 import { EventItem } from '../models/event-item';
 import { LitterPickArea, LitterPickEvent } from '../models/litter-pick-event';
 import { LitterReport } from '../models/litter-report';
+import { PhotoAttachment } from '../models/photo-attachment';
 import { CurrentUser, ManagedUser } from '../models/user';
 import {
   BoundaryCoordinate,
@@ -77,7 +78,7 @@ type PdfPage = {
   templateUrl: './admin-events.component.html',
   styleUrl: './admin-events.component.css'
 })
-export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
+export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy {
   readonly defaultMeetingPoint = {
     label: 'Hethersett Methodist Church',
     lat: 52.60099,
@@ -95,6 +96,7 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
   registerConfirmPasswordInput = '';
   registerLoading = false;
   registerMessage = '';
+  authChecking = true;
   isUnlocked = false;
   currentUser: CurrentUser | null = null;
   activeAdminSection: AdminSection = 'events';
@@ -157,6 +159,7 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
   };
   private resizeObserver?: ResizeObserver;
   private observedLitterPickMap?: HTMLElement;
+  private authSubscription?: Subscription;
 
   @ViewChild('litterPickMap') litterPickMap?: ElementRef<HTMLElement>;
 
@@ -167,6 +170,28 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     private litterPickEventsService: LitterPickEventsService,
     private litterReportsService: LitterReportsService
   ) {}
+
+  ngOnInit(): void {
+    this.authSubscription = this.authService.user$.subscribe((user) => {
+      if (this.authChecking) {
+        this.currentUser = user;
+        this.isUnlocked = user?.roles.includes('Admin') ?? false;
+        return;
+      }
+
+      this.handleAuthenticatedUser(user);
+    });
+    this.authService.restoreSession().subscribe({
+      next: () => {
+        this.authChecking = false;
+        this.handleAuthenticatedUser(this.authService.currentUser);
+      },
+      error: () => {
+        this.authChecking = false;
+        this.handleAuthenticatedUser(this.authService.currentUser);
+      }
+    });
+  }
 
   ngAfterViewChecked(): void {
     if (!this.litterPickMap?.nativeElement || this.observedLitterPickMap === this.litterPickMap.nativeElement) {
@@ -183,6 +208,7 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.authSubscription?.unsubscribe();
     this.resizeObserver?.disconnect();
   }
 
@@ -199,16 +225,9 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     this.authService.login({ email, password, rememberMe: this.rememberMe }).subscribe({
       next: (user) => {
         this.loginLoading = false;
-        this.isUnlocked = true;
-        this.currentUser = user;
         this.emailInput = '';
         this.passwordInput = '';
-        this.eventsService.loadEvents().subscribe(() => {
-          this.loadEvents();
-        });
-        this.loadReports();
-        this.loadLitterPickEvents();
-        this.loadUsers();
+        this.handleAuthenticatedUser(user);
       },
       error: () => {
         this.loginLoading = false;
@@ -267,15 +286,7 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
   logout(): void {
     this.authService.logout().subscribe({
       next: () => {
-        this.isUnlocked = false;
-        this.currentUser = null;
-        this.events = [];
-        this.reports = [];
-        this.litterPickEvents = [];
-        this.users = [];
-        this.resetPasswords = {};
-        this.pendingUserRoles = {};
-        this.pendingUserDisabled = {};
+        this.handleAuthenticatedUser(null);
         this.statusMessage = '';
         this.errorMessage = '';
       },
@@ -410,6 +421,38 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
   removeImage(target: EventItem): void {
     target.imageUrl = '';
     target.imageAlt = '';
+  }
+
+  async attachLitterPickPhotos(event: Event, target: LitterPickEvent): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    if (!files.length) {
+      return;
+    }
+
+    try {
+      const currentPhotos = target.photos || [];
+      const photos = await Promise.all(
+        files
+          .filter((file) => file.type.startsWith('image/'))
+          .slice(0, Math.max(0, 12 - currentPhotos.length))
+          .map(async (file) => ({
+            fileName: file.name,
+            contentType: file.type || 'image/jpeg',
+            dataUrl: await this.readFileAsDataUrl(file)
+          }))
+      );
+      target.photos = [...currentPhotos, ...photos];
+      this.statusMessage = `${photos.length} photo${photos.length === 1 ? '' : 's'} attached. Save changes to keep them.`;
+    } catch {
+      this.errorMessage = 'Unable to read one of those photos.';
+    } finally {
+      input.value = '';
+    }
+  }
+
+  removeLitterPickPhoto(target: LitterPickEvent, index: number): void {
+    target.photos = (target.photos || []).filter((_, photoIndex) => photoIndex !== index);
   }
 
   toggleCreateForm(): void {
@@ -629,6 +672,52 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
 
   get canManageUsers(): boolean {
     return this.currentUser?.roles.includes('Admin') ?? false;
+  }
+
+  get isSignedInWithoutAdminAccess(): boolean {
+    return Boolean(this.currentUser && !this.isUnlocked);
+  }
+
+  private handleAuthenticatedUser(user: CurrentUser | null): void {
+    const previousUserId = this.currentUser?.id || null;
+    const wasUnlocked = this.isUnlocked;
+    this.currentUser = user;
+    this.isUnlocked = user?.roles.includes('Admin') ?? false;
+
+    if (this.isUnlocked) {
+      if (!wasUnlocked || previousUserId !== user?.id) {
+        this.loadAdminWorkspace();
+      }
+      return;
+    }
+
+    if (wasUnlocked || previousUserId !== (user?.id || null)) {
+      this.clearAdminWorkspace();
+    }
+  }
+
+  private loadAdminWorkspace(): void {
+    this.eventsService.loadEvents().subscribe(() => {
+      this.loadEvents();
+    });
+    this.loadReports();
+    this.loadLitterPickEvents();
+    this.loadUsers();
+  }
+
+  private clearAdminWorkspace(): void {
+    this.events = [];
+    this.reports = [];
+    this.litterPickEvents = [];
+    this.users = [];
+    this.resetPasswords = {};
+    this.pendingUserRoles = {};
+    this.pendingUserDisabled = {};
+    this.showCreateForm = false;
+    this.showLitterPickCreateForm = false;
+    this.showUserCreateForm = false;
+    this.closeDetails();
+    this.closeLitterPickDetails();
   }
 
   toggleUserCreateForm(): void {
@@ -1288,6 +1377,10 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     const leaderboard = this.litterPickLeaderboard(event);
     const reportMap = await this.createReportMapImage(event, leaderboard, 1200, 650);
     const reportLogo = await this.createPdfLogoImage('#123f2a');
+    const photoReportLogo = await this.createPdfLogoImage('#f8faf7');
+    const eventPhotoImages = (
+      await Promise.all((event.photos || []).map((photo, index) => this.createPdfPhotoImage(photo, `EventPhoto${index + 1}`)))
+    ).filter((photo): photo is PdfImageResource => Boolean(photo));
     const addPage = (): PdfPage => {
       const page: PdfPage = { commands: ['1 J 1 j'], images: [] };
       pages.push(page);
@@ -1361,6 +1454,26 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     this.addPdfText(cover.commands, 'Leaderboard ranks by bags collected, then covered area when bag totals match.', 48, 58, 8, {
       color: '#55655d'
     });
+
+    if (eventPhotoImages.length) {
+      let photoPage = addPage();
+      this.addPdfPhotoHeader(photoPage, event, photoReportLogo || reportLogo);
+      let slot = 0;
+      eventPhotoImages.forEach((photo) => {
+        if (slot >= 4) {
+          photoPage = addPage();
+          this.addPdfPhotoHeader(photoPage, event, photoReportLogo || reportLogo);
+          slot = 0;
+        }
+
+        photoPage.images.push(photo);
+        const col = slot % 2;
+        const row = Math.floor(slot / 2);
+        const frame = { x: 48 + col * 256, y: 414 - row * 286, width: 226, height: 244 };
+        this.addPdfPhotoCard(photoPage.commands, photo, frame);
+        slot += 1;
+      });
+    }
 
     if (leaderboard.length) {
       let page = addPage();
@@ -1584,6 +1697,33 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     }
   }
 
+  private async createPdfPhotoImage(photo: PhotoAttachment, name: string): Promise<PdfImageResource | null> {
+    try {
+      const image = await this.loadReportMapTile(photo.dataUrl);
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return null;
+      }
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      return {
+        name,
+        width,
+        height,
+        data: this.dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.88))
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private addPdfCoverageMap(
     commands: string[],
     event: LitterPickEvent,
@@ -1641,6 +1781,34 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     this.addPdfRect(commands, 48, 736, 500, 1, '#dce8df', '#dce8df', 0);
   }
 
+  private addPdfPhotoHeader(page: PdfPage, event: LitterPickEvent, logo?: PdfImageResource | null): void {
+    const { commands } = page;
+    this.addPdfRect(commands, 0, 0, 595, 842, '#f8faf7', '#f8faf7', 0);
+    this.addPdfRect(commands, 48, 762, 5, 46, '#4f9968', '#4f9968', 0);
+    this.addPdfText(commands, 'Event photos', 66, 792, 24, { bold: true, color: '#123f2a' });
+    this.addPdfText(commands, event.title || 'Litter pick event', 66, 768, 10, { color: '#55655d' });
+    this.addPdfText(commands, `${this.formatLitterPickDate(event)}  |  ${this.formatTimeRange(event)}`, 66, 748, 8, {
+      color: '#7b8a82'
+    });
+    this.addPdfRect(commands, 48, 720, 500, 1, '#dce8df', '#dce8df', 0);
+    if (logo) {
+      page.images.push(logo);
+      this.addPdfImage(commands, logo.name, { x: 438, y: 752, width: 104, height: 76 });
+    }
+  }
+
+  private addPdfPhotoCard(commands: string[], photo: PdfImageResource, frame: PdfRect): void {
+    const imageFrame = {
+      x: frame.x + 10,
+      y: frame.y + 10,
+      width: frame.width - 20,
+      height: frame.height - 20
+    };
+    this.addPdfRect(commands, frame.x, frame.y, frame.width, frame.height, '#ffffff', '#d8e5dc', 0.55);
+    this.addPdfRect(commands, imageFrame.x, imageFrame.y, imageFrame.width, imageFrame.height, '#f3f7f4', '#edf3ef', 0.35);
+    this.addPdfImage(commands, photo.name, this.pdfContainedRect(photo, imageFrame));
+  }
+
   private addPdfLeaderboardRow(commands: string[], row: LitterPickLeaderboardRow, y: number): void {
     this.addPdfRect(commands, 48, y - 10, 500, 22, row.area.stickerTint || '#f7faf6', '#e2ece5', 0.3);
     this.addPdfCircle(commands, 62, y, 5.5, row.area.stickerColor || '#f2c94c', row.area.stickerStroke || '#123f2a', 0.5);
@@ -1693,6 +1861,28 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
     commands.push(
       `q ${this.pdfNumber(rect.width)} 0 0 ${this.pdfNumber(rect.height)} ${this.pdfNumber(rect.x)} ${this.pdfNumber(rect.y)} cm /${imageName} Do Q`
     );
+  }
+
+  private pdfContainedRect(image: PdfImageResource, frame: PdfRect): PdfRect {
+    const imageRatio = image.width / image.height;
+    const frameRatio = frame.width / frame.height;
+    if (imageRatio > frameRatio) {
+      const height = frame.width / imageRatio;
+      return {
+        x: frame.x,
+        y: frame.y + (frame.height - height) / 2,
+        width: frame.width,
+        height
+      };
+    }
+
+    const width = frame.height * imageRatio;
+    return {
+      x: frame.x + (frame.width - width) / 2,
+      y: frame.y,
+      width,
+      height: frame.height
+    };
   }
 
   private addPdfCircle(
@@ -2100,7 +2290,8 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
       meetingPointLng: this.defaultMeetingPoint.lng,
       notes: '',
       status: 'open',
-      areas: []
+      areas: [],
+      photos: []
     };
   }
 
@@ -2143,6 +2334,7 @@ export class AdminEventsComponent implements AfterViewChecked, OnDestroy {
       meetingPointLng: Number.isFinite(Number(event.meetingPointLng))
         ? Number(event.meetingPointLng)
         : this.defaultMeetingPoint.lng,
+      photos: (event.photos || []).map((photo) => ({ ...photo })),
       areas: (event.areas || []).map((area, index) => {
         const existingSticker = this.findStickerForArea(area);
         const sticker =

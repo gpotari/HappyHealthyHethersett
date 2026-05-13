@@ -327,6 +327,52 @@
   resize: vertical;
 }
 
+.photo-preview-grid {
+  --photo-preview-size: clamp(112px, 24vw, 150px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.photo-preview {
+  display: grid;
+  flex: 0 0 var(--photo-preview-size);
+  gap: 0.45rem;
+  margin: 0;
+  min-width: 0;
+  width: var(--photo-preview-size);
+}
+
+.photo-preview img {
+  width: var(--photo-preview-size);
+  height: var(--photo-preview-size);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.photo-preview figcaption {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-preview button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--green-850);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
 .report-form .btn:disabled {
   cursor: not-allowed;
   opacity: 0.55;

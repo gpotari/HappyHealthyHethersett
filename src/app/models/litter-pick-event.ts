@@ -1,3 +1,5 @@
+import { PhotoAttachment } from './photo-attachment';
+
 export type LitterPickStatus = 'open' | 'closed';
 
 export interface LitterPickArea {
@@ -30,6 +32,7 @@ export interface LitterPickEvent {
   notes?: string;
   status: LitterPickStatus;
   areas: LitterPickArea[];
+  photos?: PhotoAttachment[];
   createdAt?: string;
   updatedAt?: string;
 }

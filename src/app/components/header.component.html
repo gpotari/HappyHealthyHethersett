@@ -4,16 +4,6 @@
       <img class="site-logo" src="assets/images/hhh-oval-logo.png" alt="" aria-hidden="true" />
       <p class="site-title">Happy Healthy Hethersett</p>
     </a>
-    <button
-      class="nav-toggle"
-      type="button"
-      [attr.aria-expanded]="navOpen"
-      aria-controls="primary-navigation"
-      (click)="toggleNav()"
-    >
-      <span class="visually-hidden">Menu</span>
-      <span class="nav-toggle__bar" aria-hidden="true"></span>
-    </button>
     <nav class="primary-nav" aria-label="Primary">
       <ul id="primary-navigation" class="nav-list" [class.is-open]="navOpen">
         <li><a [routerLink]="['/']" (click)="closeNav()">Home</a></li>
@@ -25,5 +15,161 @@
         <li><a class="nav-list__cta" [routerLink]="['/report-litter']" (click)="closeNav()">Report litter</a></li>
       </ul>
     </nav>
+    <div class="header-account" [class.is-open]="accountOpen">
+      <button
+        class="account-button"
+        [class.has-user]="currentUser"
+        type="button"
+        [attr.aria-expanded]="accountOpen"
+        aria-controls="account-menu"
+        (click)="toggleAccountMenu()"
+      >
+        <span class="account-button__avatar" aria-hidden="true" *ngIf="currentUser">
+          <img *ngIf="currentUser?.avatarDataUrl; else avatarInitials" [src]="currentUser?.avatarDataUrl" alt="" />
+          <ng-template #avatarInitials>{{ accountInitials }}</ng-template>
+        </span>
+        <span class="account-button__label">{{ currentUser ? 'Account' : 'Sign in' }}</span>
+      </button>
+
+      <div class="account-menu" id="account-menu" *ngIf="accountOpen">
+        <ng-container *ngIf="!currentUser; else signedInMenu">
+          <div class="account-menu__tabs" role="tablist" aria-label="Account access options">
+            <button type="button" [class.is-active]="authMode === 'signIn'" (click)="showAuthMode('signIn')">Sign in</button>
+            <button type="button" [class.is-active]="authMode === 'register'" (click)="showAuthMode('register')">Register</button>
+          </div>
+
+          <form class="account-form" *ngIf="authMode === 'signIn'" (ngSubmit)="signIn()">
+            <label for="header-account-email">Email</label>
+            <input id="header-account-email" type="email" [(ngModel)]="emailInput" name="accountEmail" autocomplete="email" />
+            <label for="header-account-password">Password</label>
+            <input
+              id="header-account-password"
+              type="password"
+              [(ngModel)]="passwordInput"
+              name="accountPassword"
+              autocomplete="current-password"
+            />
+            <label class="account-checkbox">
+              <input type="checkbox" [(ngModel)]="rememberMe" name="rememberMe" />
+              <span>Keep me signed in</span>
+            </label>
+            <button class="btn btn--primary" type="submit" [disabled]="loginLoading">
+              {{ loginLoading ? 'Signing in...' : 'Sign in' }}
+            </button>
+          </form>
+
+          <form class="account-form" *ngIf="authMode === 'register'" (ngSubmit)="register()">
+            <label for="header-register-name">Name</label>
+            <input id="header-register-name" type="text" [(ngModel)]="registerNameInput" name="registerName" autocomplete="name" />
+            <label for="header-register-email">Email</label>
+            <input id="header-register-email" type="email" [(ngModel)]="registerEmailInput" name="registerEmail" autocomplete="email" />
+            <label for="header-register-password">Password</label>
+            <input
+              id="header-register-password"
+              type="password"
+              [(ngModel)]="registerPasswordInput"
+              name="registerPassword"
+              autocomplete="new-password"
+            />
+            <label for="header-register-confirm">Confirm password</label>
+            <input
+              id="header-register-confirm"
+              type="password"
+              [(ngModel)]="registerConfirmPasswordInput"
+              name="registerConfirmPassword"
+              autocomplete="new-password"
+            />
+            <button class="btn btn--primary" type="submit" [disabled]="registerLoading">
+              {{ registerLoading ? 'Registering...' : 'Register' }}
+            </button>
+          </form>
+        </ng-container>
+
+        <ng-template #signedInMenu>
+          <div class="account-summary" *ngIf="accountView === 'menu'">
+            <div class="account-summary__avatar" aria-hidden="true">
+              <img *ngIf="currentUser?.avatarDataUrl; else summaryInitials" [src]="currentUser?.avatarDataUrl" alt="" />
+              <ng-template #summaryInitials>{{ accountInitials }}</ng-template>
+            </div>
+            <div>
+              <strong>{{ currentUser?.displayName || currentUser?.email }}</strong>
+              <span>{{ currentUser?.email }}</span>
+            </div>
+          </div>
+
+          <div class="account-actions" *ngIf="accountView === 'menu'">
+            <button class="account-menu__item" type="button" (click)="openManageAccount()">Manage account</button>
+            <button class="account-menu__item" type="button" (click)="goToAdmin()" *ngIf="hasAdminRole">Admin panel</button>
+            <button class="account-menu__item account-menu__item--danger" type="button" (click)="logout()">Sign out</button>
+          </div>
+
+          <div class="account-manage" *ngIf="accountView === 'manage'">
+            <button class="account-back" type="button" (click)="accountView = 'menu'">Back</button>
+            <div class="account-avatar-edit">
+              <div class="account-summary__avatar account-summary__avatar--large" aria-hidden="true">
+                <img *ngIf="avatarPreview; else manageInitials" [src]="avatarPreview" alt="" />
+                <ng-template #manageInitials>{{ accountInitials }}</ng-template>
+              </div>
+              <label class="btn btn--secondary account-avatar-upload">
+                Upload avatar
+                <input type="file" accept="image/*" (change)="onAvatarSelected($event)" />
+              </label>
+              <button class="btn btn--secondary" type="button" (click)="removeAvatar()" *ngIf="avatarPreview">Remove</button>
+            </div>
+
+            <form class="account-form" (ngSubmit)="saveProfile()">
+              <label for="account-display-name">Name</label>
+              <input id="account-display-name" type="text" [(ngModel)]="displayNameInput" name="displayName" autocomplete="name" />
+              <button class="btn btn--primary" type="submit" [disabled]="accountSaving">
+                {{ accountSaving ? 'Saving...' : 'Save account' }}
+              </button>
+            </form>
+
+            <form class="account-form account-form--password" (ngSubmit)="changePassword()">
+              <label for="account-current-password">Current password</label>
+              <input
+                id="account-current-password"
+                type="password"
+                [(ngModel)]="currentPasswordInput"
+                name="currentPassword"
+                autocomplete="current-password"
+              />
+              <label for="account-new-password">New password</label>
+              <input
+                id="account-new-password"
+                type="password"
+                [(ngModel)]="newPasswordInput"
+                name="newPassword"
+                autocomplete="new-password"
+              />
+              <label for="account-confirm-new-password">Confirm new password</label>
+              <input
+                id="account-confirm-new-password"
+                type="password"
+                [(ngModel)]="confirmNewPasswordInput"
+                name="confirmNewPassword"
+                autocomplete="new-password"
+              />
+              <button class="btn btn--secondary" type="submit" [disabled]="passwordSaving">
+                {{ passwordSaving ? 'Changing...' : 'Change password' }}
+              </button>
+            </form>
+          </div>
+        </ng-template>
+
+        <p class="account-message account-message--status" *ngIf="accountStatus">{{ accountStatus }}</p>
+        <p class="account-message account-message--error" *ngIf="accountError">{{ accountError }}</p>
+      </div>
+    </div>
+    <button
+      class="nav-toggle"
+      type="button"
+      [attr.aria-expanded]="navOpen"
+      aria-controls="primary-navigation"
+      (click)="toggleNav()"
+    >
+      <span class="visually-hidden">Menu</span>
+      <span class="nav-toggle__bar" aria-hidden="true"></span>
+    </button>
   </div>
 </header>

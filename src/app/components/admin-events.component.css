@@ -56,6 +56,14 @@
   margin: 0;
 }
 
+.admin__login--checking h3,
+.admin__login--account h3 {
+  margin: 0.25rem 0 0;
+  color: var(--green-850);
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
 .admin-auth__header {
   display: flex;
   align-items: flex-start;
@@ -307,6 +315,46 @@
 .admin__muted {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.admin-photo-grid {
+  --admin-photo-size: 96px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.admin-photo-thumb {
+  display: grid;
+  flex: 0 0 var(--admin-photo-size);
+  gap: 0.4rem;
+  min-width: 0;
+  width: var(--admin-photo-size);
+  margin: 0;
+  color: var(--green-850);
+  text-decoration: none;
+}
+
+.admin-photo-thumb img {
+  width: var(--admin-photo-size);
+  height: var(--admin-photo-size);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.admin-photo-thumb figcaption {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-photo-grid--editable {
+  --admin-photo-size: clamp(118px, 18vw, 142px);
 }
 
 .admin__upload {

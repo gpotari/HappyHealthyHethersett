@@ -15,8 +15,45 @@ public static class DatabaseInitializer
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         await db.Database.EnsureCreatedAsync();
+        await EnsureSchemaUpdatesAsync(db);
         await SeedRolesAsync(db);
         await SeedInitialAdminAsync(db, configuration, logger);
+    }
+
+    private static async Task EnsureSchemaUpdatesAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE `users`
+            ADD COLUMN IF NOT EXISTS `AvatarFileName` varchar(220) CHARACTER SET utf8mb4 NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE `users`
+            ADD COLUMN IF NOT EXISTS `AvatarContentType` varchar(120) CHARACTER SET utf8mb4 NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE `users`
+            ADD COLUMN IF NOT EXISTS `AvatarData` longblob NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS `stored_photos` (
+                `Id` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+                `OwnerType` varchar(40) CHARACTER SET utf8mb4 NOT NULL,
+                `OwnerId` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+                `FileName` varchar(220) CHARACTER SET utf8mb4 NOT NULL,
+                `ContentType` varchar(120) CHARACTER SET utf8mb4 NOT NULL,
+                `Data` longblob NOT NULL,
+                `CreatedAt` datetime(6) NOT NULL,
+                CONSTRAINT `PK_stored_photos` PRIMARY KEY (`Id`)
+            ) CHARACTER SET=utf8mb4;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_stored_photos_OwnerType_OwnerId`
+            ON `stored_photos` (`OwnerType`, `OwnerId`);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_stored_photos_CreatedAt`
+            ON `stored_photos` (`CreatedAt`);
+            """);
     }
 
     private static async Task SeedRolesAsync(AppDbContext db)

@@ -1,3 +1,5 @@
+import { PhotoAttachment } from './photo-attachment';
+
 export interface LitterReport {
   id?: string;
   createdAt?: string;
@@ -8,4 +10,5 @@ export interface LitterReport {
   comment?: string;
   contact?: string;
   mapLink?: string;
+  photos?: PhotoAttachment[];
 }

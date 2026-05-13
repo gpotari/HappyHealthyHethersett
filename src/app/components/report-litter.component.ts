@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LitterReport } from '../models/litter-report';
+import { PhotoAttachment } from '../models/photo-attachment';
 import { LitterReportsService } from '../services/litter-reports.service';
 
 type ReportPoint = {
@@ -41,6 +42,7 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
   locationStatus = '';
   locating = false;
   submittedReport?: LitterReport;
+  reportPhotos: PhotoAttachment[] = [];
 
   zoom = 14;
   readonly minZoom = 13;
@@ -130,7 +132,8 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
       `Map link: ${report.mapLink}`,
       `Amount of litter: ${report.amount || 'Not specified.'}`,
       `Details: ${report.comment || 'No extra details provided.'}`,
-      `Reporter contact: ${report.contact || 'Not provided.'}`
+      `Reporter contact: ${report.contact || 'Not provided.'}`,
+      `Photos attached: ${report.photos?.length || 0}`
     ];
 
     return parts.join('\n');
@@ -339,6 +342,37 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  async onReportPhotosSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files || []);
+    if (!files.length) {
+      return;
+    }
+
+    this.submitError = '';
+    try {
+      const photos = await Promise.all(
+        files
+          .filter((file) => file.type.startsWith('image/'))
+          .slice(0, Math.max(0, 8 - this.reportPhotos.length))
+          .map(async (file) => ({
+            fileName: file.name,
+            contentType: file.type || 'image/jpeg',
+            dataUrl: await this.readFileAsDataUrl(file)
+          }))
+      );
+      this.reportPhotos = [...this.reportPhotos, ...photos];
+    } catch {
+      this.submitError = 'Unable to read one of those photos.';
+    } finally {
+      input.value = '';
+    }
+  }
+
+  removeReportPhoto(index: number): void {
+    this.reportPhotos = this.reportPhotos.filter((_, photoIndex) => photoIndex !== index);
+  }
+
   copyReport(): void {
     if (!this.selectedPoint) {
       return;
@@ -459,7 +493,17 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
       amount: this.litterAmount,
       comment: this.comment.trim(),
       contact: this.contact.trim(),
-      mapLink: this.mapLink
+      mapLink: this.mapLink,
+      photos: this.reportPhotos.map((photo) => ({ ...photo }))
     };
+  }
+
+  private readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   }
 }

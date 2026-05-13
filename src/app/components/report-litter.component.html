@@ -120,6 +120,27 @@
               />
             </div>
 
+            <div class="form-field">
+              <label for="report-photos">Add photos <span>optional</span></label>
+              <input
+                id="report-photos"
+                name="photos"
+                type="file"
+                accept="image/*"
+                multiple
+                (change)="onReportPhotosSelected($event)"
+              />
+              <div class="photo-preview-grid" *ngIf="reportPhotos.length">
+                <figure class="photo-preview" *ngFor="let photo of reportPhotos; let i = index">
+                  <img [src]="photo.dataUrl" [alt]="photo.fileName" />
+                  <figcaption>{{ photo.fileName }}</figcaption>
+                  <button type="button" (click)="removeReportPhoto(i)" [attr.aria-label]="'Remove ' + photo.fileName">
+                    Remove
+                  </button>
+                </figure>
+              </div>
+            </div>
+
             <button class="btn btn--primary" type="submit" [disabled]="!selectedPoint || submitting">
               {{ submitting ? 'Submitting report...' : 'Submit report' }}
             </button>

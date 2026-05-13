@@ -1,117 +1,48 @@
 <section class="section section--alt admin" aria-labelledby="admin-title">
   <div class="container">
     <header class="section__header">
-      <h2 id="admin-title">Admin dashboard</h2>
+      <h2 id="admin-title">{{ isUnlocked ? 'Admin dashboard' : 'Account access' }}</h2>
       <p class="section__intro">
-        Manage public events and review litter reports from one simple workspace.
+        {{
+          isUnlocked
+            ? 'Manage public events and review litter reports from one simple workspace.'
+            : 'Sign in or register for a Happy Healthy Hethersett account.'
+        }}
       </p>
     </header>
 
-    <div class="admin__login" *ngIf="!isUnlocked">
-      <div class="admin-auth__header">
-        <div>
-          <p class="admin-section__eyebrow">Secure access</p>
-          <h3>{{ authMode === 'signIn' ? 'Sign in' : 'Register' }}</h3>
-        </div>
-        <div class="admin-auth__tabs" role="tablist" aria-label="Admin access options">
-          <button type="button" [class.is-active]="authMode === 'signIn'" (click)="showAuthMode('signIn')">
-            Sign in
-          </button>
-          <button type="button" [class.is-active]="authMode === 'register'" (click)="showAuthMode('register')">
-            Register
-          </button>
-        </div>
-      </div>
-
-      <p class="admin-auth__intro">
-        {{
-          authMode === 'signIn'
-            ? 'Use your approved admin account to manage site content.'
-            : 'Create an account request. An admin must enable it before sign in.'
-        }}
-      </p>
-
-      <div class="admin__login-form" *ngIf="authMode === 'signIn'">
-        <div class="admin__field">
-          <label for="admin-email">Email</label>
-          <input
-            id="admin-email"
-            type="email"
-            [(ngModel)]="emailInput"
-            placeholder="name@example.com"
-            autocomplete="email"
-          />
-        </div>
-        <div class="admin__field">
-          <label for="admin-password">Password</label>
-          <input
-            id="admin-password"
-            type="password"
-            [(ngModel)]="passwordInput"
-            placeholder="Enter password"
-            autocomplete="current-password"
-          />
-        </div>
-        <label class="admin__checkbox">
-          <input type="checkbox" [(ngModel)]="rememberMe" />
-          <span>Keep me signed in</span>
-        </label>
-        <button class="btn btn--primary admin-auth__submit" type="button" (click)="unlock()" [disabled]="loginLoading">
-          {{ loginLoading ? 'Signing in...' : 'Sign in' }}
-        </button>
-      </div>
-
-      <div class="admin__login-form admin__login-form--register" *ngIf="authMode === 'register'">
-        <div class="admin__field">
-          <label for="register-name">Name</label>
-          <input
-            id="register-name"
-            type="text"
-            [(ngModel)]="registerNameInput"
-            placeholder="Your name"
-            autocomplete="name"
-          />
-        </div>
-        <div class="admin__field">
-          <label for="register-email">Email</label>
-          <input
-            id="register-email"
-            type="email"
-            [(ngModel)]="registerEmailInput"
-            placeholder="name@example.com"
-            autocomplete="email"
-          />
-        </div>
-        <div class="admin__field">
-          <label for="register-password">Password</label>
-          <input
-            id="register-password"
-            type="password"
-            [(ngModel)]="registerPasswordInput"
-            placeholder="At least 10 characters"
-            autocomplete="new-password"
-          />
-        </div>
-        <div class="admin__field">
-          <label for="register-confirm-password">Confirm password</label>
-          <input
-            id="register-confirm-password"
-            type="password"
-            [(ngModel)]="registerConfirmPasswordInput"
-            placeholder="Repeat password"
-            autocomplete="new-password"
-          />
-        </div>
-        <button class="btn btn--primary admin-auth__submit" type="button" (click)="registerUser()" [disabled]="registerLoading">
-          {{ registerLoading ? 'Registering...' : 'Request account' }}
-        </button>
-      </div>
-
-      <p class="admin__status" *ngIf="registerMessage">{{ registerMessage }}</p>
-      <p class="admin__error" *ngIf="errorMessage">{{ errorMessage }}</p>
+    <div class="admin__login admin__login--checking" *ngIf="authChecking">
+      <p class="admin-section__eyebrow">Checking access</p>
+      <h3>Restoring your session</h3>
+      <p class="admin-auth__intro">If you signed in before, we will keep you signed in on this device.</p>
     </div>
 
-    <div *ngIf="isUnlocked" class="admin-shell">
+    <div class="admin__login admin__login--account" *ngIf="!authChecking && !currentUser">
+      <div class="admin-auth__header">
+        <div>
+          <p class="admin-section__eyebrow">Admin access</p>
+          <h3>Sign in from the account menu</h3>
+        </div>
+      </div>
+      <p class="admin-auth__intro">
+        Use the Account button in the top-right corner to sign in or register. Admin users can then open this dashboard from the account menu.
+      </p>
+    </div>
+
+    <div class="admin__login admin__login--account" *ngIf="!authChecking && isSignedInWithoutAdminAccess">
+      <div class="admin-auth__header">
+        <div>
+          <p class="admin-section__eyebrow">Signed in</p>
+          <h3>{{ currentUser?.displayName || currentUser?.email }}</h3>
+        </div>
+        <button class="btn btn--secondary" type="button" (click)="logout()">Sign out</button>
+      </div>
+      <p class="admin-auth__intro">
+        This account is signed in on this device, but it does not have admin access. Ask an admin to grant access if you need to manage site content.
+      </p>
+    </div>
+
+    <div *ngIf="!authChecking && isUnlocked" class="admin-shell">
       <aside class="admin-sidebar" aria-label="Admin sections">
         <div class="admin-userbar" *ngIf="currentUser">
           <span>{{ currentUser.displayName || currentUser.email }}</span>
@@ -258,6 +189,18 @@
                   <dd>{{ report.contact || 'Not provided.' }}</dd>
                 </div>
               </dl>
+              <div class="admin-photo-grid" *ngIf="report.photos?.length">
+                <a
+                  class="admin-photo-thumb"
+                  *ngFor="let photo of report.photos"
+                  [href]="photo.dataUrl"
+                  target="_blank"
+                  rel="noopener"
+                  [attr.aria-label]="'Open ' + photo.fileName"
+                >
+                  <img [src]="photo.dataUrl" [alt]="photo.fileName" />
+                </a>
+              </div>
             </article>
           </div>
 
@@ -817,6 +760,27 @@
     <div class="admin__field admin__field--full">
       <label for="edit-pick-notes">Notes</label>
       <textarea id="edit-pick-notes" rows="2" [(ngModel)]="draftLitterPickEvent.notes" [disabled]="!isEditingLitterPick"></textarea>
+    </div>
+    <div class="admin__field admin__field--full">
+      <label>Event photos <span class="admin__hint">Optional</span></label>
+      <label class="btn btn--secondary admin__upload admin__image-button" [class.is-disabled]="!isEditingLitterPick">
+        Add photos
+        <input type="file" accept="image/*" multiple (change)="attachLitterPickPhotos($event, draftLitterPickEvent)" [disabled]="!isEditingLitterPick" />
+      </label>
+      <div class="admin-photo-grid admin-photo-grid--editable" *ngIf="draftLitterPickEvent.photos?.length">
+        <figure class="admin-photo-thumb" *ngFor="let photo of draftLitterPickEvent.photos; let i = index">
+          <img [src]="photo.dataUrl" [alt]="photo.fileName" />
+          <figcaption>{{ photo.fileName }}</figcaption>
+          <button
+            class="btn btn--secondary"
+            type="button"
+            (click)="removeLitterPickPhoto(draftLitterPickEvent, i)"
+            [disabled]="!isEditingLitterPick"
+          >
+            Remove
+          </button>
+        </figure>
+      </div>
     </div>
 
     <div class="litter-workspace">

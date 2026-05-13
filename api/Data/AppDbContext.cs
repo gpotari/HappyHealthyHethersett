@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<CommunityEvent> Events => Set<CommunityEvent>();
     public DbSet<LitterReportEntity> LitterReports => Set<LitterReportEntity>();
     public DbSet<LitterPickEventEntity> LitterPickEvents => Set<LitterPickEventEntity>();
+    public DbSet<StoredPhotoEntity> StoredPhotos => Set<StoredPhotoEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,6 +27,9 @@ public class AppDbContext : DbContext
             entity.Property(user => user.NormalizedEmail).HasMaxLength(320).IsRequired();
             entity.Property(user => user.DisplayName).HasMaxLength(160).IsRequired();
             entity.Property(user => user.PasswordHash).HasColumnType("text").IsRequired();
+            entity.Property(user => user.AvatarFileName).HasMaxLength(220);
+            entity.Property(user => user.AvatarContentType).HasMaxLength(120);
+            entity.Property(user => user.AvatarData).HasColumnType("longblob");
             entity.HasIndex(user => user.NormalizedEmail).IsUnique();
         });
 
@@ -98,6 +102,20 @@ public class AppDbContext : DbContext
             entity.Property(item => item.AreasJson).HasColumnType("longtext").IsRequired();
             entity.HasIndex(item => item.Date);
             entity.HasIndex(item => item.Status);
+        });
+
+        modelBuilder.Entity<StoredPhotoEntity>(entity =>
+        {
+            entity.ToTable("stored_photos");
+            entity.HasKey(photo => photo.Id);
+            entity.Property(photo => photo.Id).HasMaxLength(80);
+            entity.Property(photo => photo.OwnerType).HasMaxLength(40).IsRequired();
+            entity.Property(photo => photo.OwnerId).HasMaxLength(80).IsRequired();
+            entity.Property(photo => photo.FileName).HasMaxLength(220).IsRequired();
+            entity.Property(photo => photo.ContentType).HasMaxLength(120).IsRequired();
+            entity.Property(photo => photo.Data).HasColumnType("longblob").IsRequired();
+            entity.HasIndex(photo => new { photo.OwnerType, photo.OwnerId });
+            entity.HasIndex(photo => photo.CreatedAt);
         });
     }
 }

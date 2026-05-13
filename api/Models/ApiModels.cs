@@ -6,7 +6,9 @@ public record LoginRequest(string Email, string Password, bool RememberMe = fals
 
 public record RegisterRequest(string Email, string DisplayName, string Password);
 
-public record CurrentUserDto(Guid Id, string Email, string DisplayName, string[] Roles);
+public record CurrentUserDto(Guid Id, string Email, string DisplayName, string[] Roles, string? AvatarDataUrl);
+
+public record LoginResponseDto(CurrentUserDto User, string Token, DateTimeOffset ExpiresAt);
 
 public record CreateUserRequest(string Email, string DisplayName, string Password, string[]? Roles);
 
@@ -14,7 +16,26 @@ public record UpdateUserRequest(string DisplayName, string[]? Roles, bool IsDisa
 
 public record ResetPasswordRequest(string Password);
 
-public record UserDto(Guid Id, string Email, string DisplayName, string[] Roles, bool IsDisabled, DateTimeOffset CreatedAt, DateTimeOffset? LastLoginAt);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+
+public record UpdateAccountRequest(string DisplayName, PhotoDto? Avatar, bool ClearAvatar = false);
+
+public record UserDto(Guid Id, string Email, string DisplayName, string[] Roles, bool IsDisabled, DateTimeOffset CreatedAt, DateTimeOffset? LastLoginAt, string? AvatarDataUrl);
+
+public class PhotoDto
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("fileName")]
+    public string FileName { get; set; } = string.Empty;
+
+    [JsonPropertyName("contentType")]
+    public string ContentType { get; set; } = string.Empty;
+
+    [JsonPropertyName("dataUrl")]
+    public string DataUrl { get; set; } = string.Empty;
+}
 
 public class EventDto
 {
@@ -83,6 +104,9 @@ public class LitterReportDto
 
     [JsonPropertyName("mapLink")]
     public string? MapLink { get; set; }
+
+    [JsonPropertyName("photos")]
+    public List<PhotoDto> Photos { get; set; } = new();
 }
 
 public class LitterPickAreaDto
@@ -176,6 +200,9 @@ public class LitterPickEventDto
 
     [JsonPropertyName("areas")]
     public List<LitterPickAreaDto> Areas { get; set; } = new();
+
+    [JsonPropertyName("photos")]
+    public List<PhotoDto> Photos { get; set; } = new();
 
     [JsonPropertyName("createdAt")]
     public DateTimeOffset? CreatedAt { get; set; }

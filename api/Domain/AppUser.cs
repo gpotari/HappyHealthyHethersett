@@ -7,6 +7,9 @@ public class AppUser
     public string NormalizedEmail { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
+    public string? AvatarFileName { get; set; }
+    public string? AvatarContentType { get; set; }
+    public byte[]? AvatarData { get; set; }
     public bool IsDisabled { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastLoginAt { get; set; }

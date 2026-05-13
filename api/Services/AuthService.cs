@@ -131,6 +131,56 @@ public class AuthService
         return user;
     }
 
+    public async Task<AppUser?> UpdateAccountAsync(Guid id, UpdateAccountRequest request)
+    {
+        var user = await _db.Users
+            .Include(item => item.UserRoles)
+            .ThenInclude(item => item.Role)
+            .SingleOrDefaultAsync(item => item.Id == id);
+        if (user is null || user.IsDisabled)
+        {
+            return null;
+        }
+
+        user.DisplayName = Clean(request.DisplayName, 160);
+        if (string.IsNullOrWhiteSpace(user.DisplayName))
+        {
+            user.DisplayName = user.Email;
+        }
+
+        if (request.ClearAvatar)
+        {
+            ClearAvatar(user);
+        }
+        else if (request.Avatar is not null)
+        {
+            ApplyAvatar(user, request.Avatar);
+        }
+
+        await _db.SaveChangesAsync();
+        return user;
+    }
+
+    public async Task<bool> ChangePasswordAsync(Guid id, ChangePasswordRequest request)
+    {
+        ValidatePassword(request.NewPassword);
+        var user = await _db.Users.SingleOrDefaultAsync(item => item.Id == id);
+        if (user is null || user.IsDisabled)
+        {
+            return false;
+        }
+
+        var result = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.CurrentPassword);
+        if (result == PasswordVerificationResult.Failed)
+        {
+            throw new InvalidOperationException("Current password is incorrect.");
+        }
+
+        user.PasswordHash = _passwordHasher.HashPassword(user, request.NewPassword);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> ResetPasswordAsync(Guid id, string password)
     {
         ValidatePassword(password);
@@ -152,13 +202,19 @@ public class AuthService
         var email = user.FindFirstValue(ClaimTypes.Email) ?? string.Empty;
         var displayName = user.FindFirstValue(ClaimTypes.Name) ?? email;
         var roles = user.FindAll(ClaimTypes.Role).Select(claim => claim.Value).OrderBy(role => role).ToArray();
-        return new CurrentUserDto(id, email, displayName, roles);
+        return new CurrentUserDto(id, email, displayName, roles, null);
+    }
+
+    public static CurrentUserDto ToCurrentUser(AppUser user)
+    {
+        var roles = user.UserRoles.Select(userRole => userRole.Role.Name).OrderBy(role => role).ToArray();
+        return new CurrentUserDto(user.Id, user.Email, user.DisplayName, roles, AvatarDataUrl(user));
     }
 
     public static UserDto ToUserDto(AppUser user)
     {
         var roles = user.UserRoles.Select(userRole => userRole.Role.Name).OrderBy(role => role).ToArray();
-        return new UserDto(user.Id, user.Email, user.DisplayName, roles, user.IsDisabled, user.CreatedAt, user.LastLoginAt);
+        return new UserDto(user.Id, user.Email, user.DisplayName, roles, user.IsDisabled, user.CreatedAt, user.LastLoginAt, AvatarDataUrl(user));
     }
 
     public static string NormalizeEmail(string value)
@@ -202,5 +258,61 @@ public class AuthService
         {
             throw new InvalidOperationException("Passwords must be at least 10 characters long.");
         }
+    }
+
+    private static void ApplyAvatar(AppUser user, PhotoDto avatar)
+    {
+        var contentType = Clean(avatar.ContentType, 120).ToLowerInvariant();
+        if (!contentType.StartsWith("image/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Avatar must be an image.");
+        }
+
+        var data = DecodeDataUrl(avatar.DataUrl);
+        if (data is null || data.Length == 0 || data.Length > 1_000_000)
+        {
+            throw new InvalidOperationException("Avatar image is too large.");
+        }
+
+        user.AvatarFileName = CleanOptional(avatar.FileName, 220) ?? "avatar";
+        user.AvatarContentType = contentType;
+        user.AvatarData = data;
+    }
+
+    private static void ClearAvatar(AppUser user)
+    {
+        user.AvatarFileName = null;
+        user.AvatarContentType = null;
+        user.AvatarData = null;
+    }
+
+    private static string? AvatarDataUrl(AppUser user)
+    {
+        if (user.AvatarData is null || user.AvatarData.Length == 0 || string.IsNullOrWhiteSpace(user.AvatarContentType))
+        {
+            return null;
+        }
+
+        return $"data:{user.AvatarContentType};base64,{Convert.ToBase64String(user.AvatarData)}";
+    }
+
+    private static byte[]? DecodeDataUrl(string dataUrl)
+    {
+        var commaIndex = dataUrl.IndexOf(',', StringComparison.Ordinal);
+        var base64 = commaIndex >= 0 ? dataUrl[(commaIndex + 1)..] : dataUrl;
+        try
+        {
+            return Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    private static string? CleanOptional(string? value, int maxLength)
+    {
+        var cleaned = Clean(value, maxLength);
+        return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
     }
 }

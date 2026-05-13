@@ -1,6 +1,7 @@
 using HappyHealthyHethersett.Api;
 using HappyHealthyHethersett.Api.Data;
 using HappyHealthyHethersett.Api.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
@@ -17,6 +18,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 });
 
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddSingleton<BearerTokenService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -33,6 +35,13 @@ builder.Services.AddSwaggerGen(options =>
         Name = "hhh-admin",
         Description = "Sign in with /api/auth/login first. Swagger will then send the hhh-admin cookie with protected requests."
     });
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "Signed token",
+        Description = "Use the token returned by /api/auth/login as an Authorization: Bearer token."
+    });
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -42,6 +51,17 @@ builder.Services.AddSwaggerGen(options =>
                 {
                     Type = ReferenceType.SecurityScheme,
                     Id = "CookieAuth"
+                }
+            },
+            Array.Empty<string>()
+        },
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
                 }
             },
             Array.Empty<string>()
@@ -64,7 +84,25 @@ if (allowedOrigins.Length > 0)
     });
 }
 
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = "BearerOrCookie";
+        options.DefaultChallengeScheme = "BearerOrCookie";
+        options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    })
+    .AddPolicyScheme("BearerOrCookie", "Bearer or cookie", options =>
+    {
+        options.ForwardDefaultSelector = context =>
+        {
+            var authorization = context.Request.Headers.Authorization.ToString();
+            return authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? BearerTokenService.AuthenticationScheme
+                : CookieAuthenticationDefaults.AuthenticationScheme;
+        };
+    })
+    .AddScheme<AuthenticationSchemeOptions, LocalBearerAuthenticationHandler>(
+        BearerTokenService.AuthenticationScheme,
+        _ => { })
     .AddCookie(options =>
     {
         options.Cookie.Name = "hhh-admin";

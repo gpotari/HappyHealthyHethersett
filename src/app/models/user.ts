@@ -3,6 +3,13 @@ export interface CurrentUser {
   email: string;
   displayName: string;
   roles: string[];
+  avatarDataUrl?: string;
+}
+
+export interface LoginResponse {
+  user: CurrentUser;
+  token: string;
+  expiresAt: string;
 }
 
 export interface ManagedUser extends CurrentUser {
@@ -34,4 +41,21 @@ export interface UpdateUserRequest {
   displayName: string;
   roles: string[];
   isDisabled: boolean;
+}
+
+export interface AccountAvatarPayload {
+  fileName: string;
+  contentType: string;
+  dataUrl: string;
+}
+
+export interface UpdateAccountRequest {
+  displayName: string;
+  avatar?: AccountAvatarPayload | null;
+  clearAvatar?: boolean;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
 }
