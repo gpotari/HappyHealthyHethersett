@@ -64,6 +64,12 @@ public record UpdateAccountRequest(string DisplayName, PhotoDto? Avatar, bool Cl
 
 public record UserDto(Guid Id, string Email, string DisplayName, string[] Roles, bool IsDisabled, DateTimeOffset CreatedAt, DateTimeOffset? LastLoginAt, string? AvatarDataUrl);
 
+public record LitterPickAttendanceRequest(bool Attending);
+
+public record LitterPickAttendanceResponse(string EventId, bool Attending);
+
+public record LitterPickAttendanceListResponse(string[] EventIds);
+
 public class PhotoDto
 {
     [JsonPropertyName("id")]
@@ -248,6 +254,9 @@ public class LitterPickEventDto
 
     [JsonPropertyName("registeredCount")]
     public int? RegisteredCount { get; set; }
+
+    [JsonPropertyName("isAttending")]
+    public bool? IsAttending { get; set; }
 
     [JsonPropertyName("whatToBring")]
     public string? WhatToBring { get; set; }

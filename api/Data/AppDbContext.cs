@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<CommunityEvent> Events => Set<CommunityEvent>();
     public DbSet<LitterReportEntity> LitterReports => Set<LitterReportEntity>();
     public DbSet<LitterPickEventEntity> LitterPickEvents => Set<LitterPickEventEntity>();
+    public DbSet<LitterPickAttendanceEntity> LitterPickAttendances => Set<LitterPickAttendanceEntity>();
     public DbSet<StoredPhotoEntity> StoredPhotos => Set<StoredPhotoEntity>();
     public DbSet<FeedbackMessageEntity> FeedbackMessages => Set<FeedbackMessageEntity>();
 
@@ -114,6 +115,23 @@ public class AppDbContext : DbContext
             entity.Property(item => item.AreasJson).HasColumnType("longtext").IsRequired();
             entity.HasIndex(item => item.Date);
             entity.HasIndex(item => item.Status);
+        });
+
+        modelBuilder.Entity<LitterPickAttendanceEntity>(entity =>
+        {
+            entity.ToTable("litter_pick_attendances");
+            entity.HasKey(item => new { item.LitterPickEventId, item.UserId });
+            entity.Property(item => item.LitterPickEventId).HasMaxLength(80);
+            entity.HasOne(item => item.LitterPickEvent)
+                .WithMany()
+                .HasForeignKey(item => item.LitterPickEventId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(item => item.UserId);
+            entity.HasIndex(item => item.CreatedAt);
         });
 
         modelBuilder.Entity<StoredPhotoEntity>(entity =>

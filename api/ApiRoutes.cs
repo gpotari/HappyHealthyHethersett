@@ -311,16 +311,20 @@ public static class ApiRoutes
                 .ThenByDescending(item => item.Start)
                 .ToListAsync();
             var eventIds = events.Select(item => item.Id).ToArray();
+            var attendanceCounts = await LitterPickAttendanceCountsAsync(db, eventIds);
             var photos = await db.StoredPhotos
                 .AsNoTracking()
                 .Where(photo => photo.OwnerType == LitterPickEventPhotoOwner && eventIds.Contains(photo.OwnerId))
                 .OrderBy(photo => photo.CreatedAt)
                 .ToListAsync();
             var photosByEvent = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
-            return Results.Ok(events.Select(item => ToLitterPickEventDto(item, photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>())));
+            return Results.Ok(events.Select(item => ToLitterPickEventDto(
+                item,
+                photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>(),
+                attendanceCounts.GetValueOrDefault(item.Id))));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
 
-        app.MapGet("/api/public/litter-pick-events", async (AppDbContext db) =>
+        app.MapGet("/api/public/litter-pick-events", async (AppDbContext db, ClaimsPrincipal currentUser) =>
         {
             var events = await db.LitterPickEvents
                 .AsNoTracking()
@@ -329,30 +333,148 @@ public static class ApiRoutes
                 .ThenBy(item => item.Start)
                 .ToListAsync();
             var eventIds = events.Select(item => item.Id).ToArray();
+            var currentUserId = CurrentUserId(currentUser);
+            var attendingEventIds = currentUserId is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : (await db.LitterPickAttendances
+                    .AsNoTracking()
+                    .Where(item => item.UserId == currentUserId.Value && eventIds.Contains(item.LitterPickEventId))
+                    .Select(item => item.LitterPickEventId)
+                    .ToListAsync())
+                    .ToHashSet(StringComparer.Ordinal);
             var photos = await db.StoredPhotos
                 .AsNoTracking()
                 .Where(photo => photo.OwnerType == LitterPickEventPhotoOwner && eventIds.Contains(photo.OwnerId))
                 .OrderBy(photo => photo.CreatedAt)
                 .ToListAsync();
             var photosByEvent = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
-            return Results.Ok(events.Select(item => ToLitterPickEventDto(item, photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>())));
+            return Results.Ok(events.Select(item => ToLitterPickEventDto(
+                item,
+                photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>(),
+                null,
+                attendingEventIds.Contains(item.Id))));
         }).AllowAnonymous();
+
+        app.MapGet("/api/litter-pick-events/attendance", async (AppDbContext db, ClaimsPrincipal currentUser) =>
+        {
+            var currentUserId = CurrentUserId(currentUser);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var eventIds = await db.LitterPickAttendances
+                .AsNoTracking()
+                .Where(item => item.UserId == currentUserId.Value)
+                .Select(item => item.LitterPickEventId)
+                .OrderBy(id => id)
+                .ToArrayAsync();
+            return Results.Ok(new LitterPickAttendanceListResponse(eventIds));
+        }).RequireAuthorization();
+
+        app.MapPut("/api/litter-pick-events/{id}/attendance", async (
+            string id,
+            LitterPickAttendanceRequest request,
+            AppDbContext db,
+            ClaimsPrincipal currentUser) =>
+        {
+            var eventId = Clean(id, 80);
+            var currentUserId = CurrentUserId(currentUser);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var litterPickEvent = await db.LitterPickEvents.SingleOrDefaultAsync(item => item.Id == eventId);
+            if (litterPickEvent is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (litterPickEvent.Status != "open")
+            {
+                return Results.BadRequest(new { error = "This litter pick event is no longer open for sign-ups." });
+            }
+
+            var existingAttendance = await db.LitterPickAttendances.SingleOrDefaultAsync(item =>
+                item.LitterPickEventId == eventId && item.UserId == currentUserId.Value);
+            if (request.Attending && existingAttendance is null)
+            {
+                await db.LitterPickAttendances.AddAsync(new LitterPickAttendanceEntity
+                {
+                    LitterPickEventId = eventId,
+                    UserId = currentUserId.Value
+                });
+            }
+            else if (!request.Attending && existingAttendance is not null)
+            {
+                db.LitterPickAttendances.Remove(existingAttendance);
+            }
+
+            await db.SaveChangesAsync();
+            await SyncLitterPickRegisteredCountAsync(db, eventId);
+            return Results.Ok(new LitterPickAttendanceResponse(eventId, request.Attending));
+        }).RequireAuthorization();
 
         app.MapPut("/api/litter-pick-events", async (List<LitterPickEventDto> events, AppDbContext db) =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync();
-            db.LitterPickEvents.RemoveRange(await db.LitterPickEvents.ToListAsync());
-            db.StoredPhotos.RemoveRange(await db.StoredPhotos.Where(photo => photo.OwnerType == LitterPickEventPhotoOwner).ToListAsync());
             var eventEntities = events.Select(ToLitterPickEventEntity).ToList();
-            await db.LitterPickEvents.AddRangeAsync(eventEntities);
+            var eventIds = eventEntities.Select(item => item.Id).ToArray();
+            var existingEvents = await db.LitterPickEvents.ToDictionaryAsync(item => item.Id);
+            var deletedEventIds = existingEvents.Keys.Except(eventIds, StringComparer.Ordinal).ToArray();
+
+            if (deletedEventIds.Length > 0)
+            {
+                db.LitterPickAttendances.RemoveRange(await db.LitterPickAttendances
+                    .Where(item => deletedEventIds.Contains(item.LitterPickEventId))
+                    .ToListAsync());
+                db.StoredPhotos.RemoveRange(await db.StoredPhotos
+                    .Where(photo => photo.OwnerType == LitterPickEventPhotoOwner && deletedEventIds.Contains(photo.OwnerId))
+                    .ToListAsync());
+                db.LitterPickEvents.RemoveRange(deletedEventIds.Select(id => existingEvents[id]));
+            }
+
+            db.StoredPhotos.RemoveRange(await db.StoredPhotos
+                .Where(photo => photo.OwnerType == LitterPickEventPhotoOwner && eventIds.Contains(photo.OwnerId))
+                .ToListAsync());
+            foreach (var eventEntity in eventEntities)
+            {
+                if (existingEvents.TryGetValue(eventEntity.Id, out var existingEvent))
+                {
+                    UpdateLitterPickEventEntity(existingEvent, eventEntity);
+                }
+                else
+                {
+                    await db.LitterPickEvents.AddAsync(eventEntity);
+                }
+            }
+
             await db.StoredPhotos.AddRangeAsync(events.SelectMany((item, index) =>
             {
-                var ownerId = string.IsNullOrWhiteSpace(item.Id) ? eventEntities[index].Id : item.Id;
+                var ownerId = eventEntities[index].Id;
                 return ToPhotoEntities(LitterPickEventPhotoOwner, ownerId, item.Photos);
             }));
             await db.SaveChangesAsync();
+            await SyncLitterPickRegisteredCountsAsync(db, eventIds);
             await transaction.CommitAsync();
-            return Results.Ok(events);
+            var savedEvents = await db.LitterPickEvents
+                .AsNoTracking()
+                .OrderByDescending(item => item.Date)
+                .ThenByDescending(item => item.Start)
+                .ToListAsync();
+            var savedEventIds = savedEvents.Select(item => item.Id).ToArray();
+            var attendanceCounts = await LitterPickAttendanceCountsAsync(db, savedEventIds);
+            var photos = await db.StoredPhotos
+                .AsNoTracking()
+                .Where(photo => photo.OwnerType == LitterPickEventPhotoOwner && savedEventIds.Contains(photo.OwnerId))
+                .OrderBy(photo => photo.CreatedAt)
+                .ToListAsync();
+            var photosByEvent = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
+            return Results.Ok(savedEvents.Select(item => ToLitterPickEventDto(
+                item,
+                photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>(),
+                attendanceCounts.GetValueOrDefault(item.Id))));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
     }
 
@@ -535,7 +657,11 @@ public static class ApiRoutes
         };
     }
 
-    private static LitterPickEventDto ToLitterPickEventDto(LitterPickEventEntity item, List<StoredPhotoEntity> photos)
+    private static LitterPickEventDto ToLitterPickEventDto(
+        LitterPickEventEntity item,
+        List<StoredPhotoEntity> photos,
+        int? registeredCount,
+        bool? isAttending = null)
     {
         return new LitterPickEventDto
         {
@@ -549,7 +675,8 @@ public static class ApiRoutes
             MeetingPointLat = item.MeetingPointLat,
             MeetingPointLng = item.MeetingPointLng,
             Capacity = item.Capacity,
-            RegisteredCount = item.RegisteredCount,
+            RegisteredCount = registeredCount,
+            IsAttending = isAttending,
             WhatToBring = item.WhatToBring,
             EquipmentProvided = item.EquipmentProvided,
             Difficulty = item.Difficulty,
@@ -603,6 +730,81 @@ public static class ApiRoutes
             CreatedAt = item.CreatedAt ?? now,
             UpdatedAt = now
         };
+    }
+
+    private static void UpdateLitterPickEventEntity(LitterPickEventEntity target, LitterPickEventEntity source)
+    {
+        target.Title = source.Title;
+        target.Date = source.Date;
+        target.Start = source.Start;
+        target.End = source.End;
+        target.Description = source.Description;
+        target.MeetingPoint = source.MeetingPoint;
+        target.MeetingPointLat = source.MeetingPointLat;
+        target.MeetingPointLng = source.MeetingPointLng;
+        target.Capacity = source.Capacity;
+        target.WhatToBring = source.WhatToBring;
+        target.EquipmentProvided = source.EquipmentProvided;
+        target.Difficulty = source.Difficulty;
+        target.FamilyFriendly = source.FamilyFriendly;
+        target.AccessibilityNotes = source.AccessibilityNotes;
+        target.WeatherPlan = source.WeatherPlan;
+        target.ContactName = source.ContactName;
+        target.ContactEmail = source.ContactEmail;
+        target.ContactPhone = source.ContactPhone;
+        target.BagsGoal = source.BagsGoal;
+        target.VolunteersGoal = source.VolunteersGoal;
+        target.Notes = source.Notes;
+        target.Status = source.Status;
+        target.AreasJson = source.AreasJson;
+        target.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static async Task<Dictionary<string, int>> LitterPickAttendanceCountsAsync(AppDbContext db, string[] eventIds)
+    {
+        if (eventIds.Length == 0)
+        {
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+
+        return await db.LitterPickAttendances
+            .AsNoTracking()
+            .Where(item => eventIds.Contains(item.LitterPickEventId))
+            .GroupBy(item => item.LitterPickEventId)
+            .Select(group => new { EventId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.EventId, item => item.Count, StringComparer.Ordinal);
+    }
+
+    private static async Task<int> SyncLitterPickRegisteredCountAsync(AppDbContext db, string eventId)
+    {
+        var registeredCount = await db.LitterPickAttendances.CountAsync(item => item.LitterPickEventId == eventId);
+        var litterPickEvent = await db.LitterPickEvents.SingleOrDefaultAsync(item => item.Id == eventId);
+        if (litterPickEvent is not null)
+        {
+            litterPickEvent.RegisteredCount = registeredCount;
+            await db.SaveChangesAsync();
+        }
+
+        return registeredCount;
+    }
+
+    private static async Task SyncLitterPickRegisteredCountsAsync(AppDbContext db, string[] eventIds)
+    {
+        if (eventIds.Length == 0)
+        {
+            return;
+        }
+
+        var attendanceCounts = await LitterPickAttendanceCountsAsync(db, eventIds);
+        var events = await db.LitterPickEvents
+            .Where(item => eventIds.Contains(item.Id))
+            .ToListAsync();
+        foreach (var litterPickEvent in events)
+        {
+            litterPickEvent.RegisteredCount = attendanceCounts.GetValueOrDefault(litterPickEvent.Id);
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private static string DefaultLitterPickTitle(string? date)

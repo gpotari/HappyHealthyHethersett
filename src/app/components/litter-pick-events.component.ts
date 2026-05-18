@@ -1,7 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { catchError, of } from 'rxjs';
+import { catchError, of, Subscription } from 'rxjs';
 import { LitterPickEvent } from '../models/litter-pick-event';
+import { CurrentUser } from '../models/user';
+import { AuthService } from '../services/auth.service';
 import { LitterPickEventsService } from '../services/litter-pick-events.service';
 
 @Component({
@@ -10,15 +12,32 @@ import { LitterPickEventsService } from '../services/litter-pick-events.service'
   imports: [CommonModule],
   templateUrl: './litter-pick-events.component.html'
 })
-export class LitterPickEventsComponent implements OnInit {
+export class LitterPickEventsComponent implements OnInit, OnDestroy {
   private readonly defaultMeetingPointLabel = 'Hethersett Methodist Church';
   litterPicks: LitterPickEvent[] = [];
+  currentUser: CurrentUser | null = null;
   loading = true;
   error = '';
+  attendanceUpdating: Record<string, boolean> = {};
+  private userSubscription?: Subscription;
 
-  constructor(private litterPickEventsService: LitterPickEventsService) {}
+  constructor(
+    private authService: AuthService,
+    private litterPickEventsService: LitterPickEventsService
+  ) {}
 
   ngOnInit(): void {
+    this.userSubscription = this.authService.user$.subscribe((user) => {
+      const previousUserId = this.currentUser?.id || null;
+      this.currentUser = user;
+      if (previousUserId !== (user?.id || null)) {
+        if (!user) {
+          this.litterPicks = this.litterPicks.map((event) => ({ ...event, isAttending: false }));
+        } else if (this.litterPicks.length) {
+          this.loadAttendanceState();
+        }
+      }
+    });
     this.litterPickEventsService
       .loadPublicEvents()
       .pipe(
@@ -30,7 +49,14 @@ export class LitterPickEventsComponent implements OnInit {
       .subscribe((events) => {
         this.litterPicks = this.upcomingOpenEvents(events);
         this.loading = false;
+        if (this.currentUser) {
+          this.loadAttendanceState();
+        }
       });
+  }
+
+  ngOnDestroy(): void {
+    this.userSubscription?.unsubscribe();
   }
 
   formatDate(event: LitterPickEvent): string {
@@ -124,6 +150,49 @@ export class LitterPickEventsComponent implements OnInit {
     return 'Join this litter pick';
   }
 
+  attendanceButtonLabel(event: LitterPickEvent): string {
+    if (this.attendanceUpdating[event.id]) {
+      return 'Saving...';
+    }
+
+    return event.isAttending ? 'Counted in' : 'Count me in';
+  }
+
+  attendanceAriaLabel(event: LitterPickEvent): string {
+    if (!this.currentUser) {
+      return 'Sign in to tell organisers you plan to come';
+    }
+
+    return event.isAttending
+      ? 'Tell organisers you can no longer come'
+      : 'Tell organisers you plan to come';
+  }
+
+  toggleAttendance(event: LitterPickEvent): void {
+    if (!this.currentUser || this.attendanceUpdating[event.id]) {
+      return;
+    }
+
+    const attending = !event.isAttending;
+    this.attendanceUpdating = { ...this.attendanceUpdating, [event.id]: true };
+    this.litterPickEventsService.setAttendance(event.id, attending).subscribe({
+      next: (response) => {
+        this.litterPicks = this.litterPicks.map((item) =>
+          item.id === event.id
+            ? {
+                ...item,
+                isAttending: response.attending
+              }
+            : item
+        );
+        this.attendanceUpdating = { ...this.attendanceUpdating, [event.id]: false };
+      },
+      error: () => {
+        this.attendanceUpdating = { ...this.attendanceUpdating, [event.id]: false };
+      }
+    });
+  }
+
   downloadCalendar(event: LitterPickEvent): void {
     const title = 'Community litter pick';
     const description = [
@@ -159,6 +228,20 @@ export class LitterPickEventsComponent implements OnInit {
     link.download = `${this.slug(title)}.ics`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  private loadAttendanceState(): void {
+    this.litterPickEventsService.loadMyAttendance().subscribe({
+      next: (eventIds) => {
+        this.litterPicks = this.litterPicks.map((event) => ({
+          ...event,
+          isAttending: eventIds.has(event.id)
+        }));
+      },
+      error: () => {
+        this.litterPicks = this.litterPicks.map((event) => ({ ...event, isAttending: false }));
+      }
+    });
   }
 
   private upcomingOpenEvents(events: LitterPickEvent[]): LitterPickEvent[] {

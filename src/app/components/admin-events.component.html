@@ -301,6 +301,7 @@
                   <th>Event</th>
                   <th>Date</th>
                   <th>Status</th>
+                  <th>Expected</th>
                   <th>Coverage</th>
                   <th>Bags</th>
                   <th>Volunteers</th>
@@ -316,6 +317,7 @@
                       {{ event.status }}
                     </span>
                   </td>
+                  <td>{{ event.registeredCount || 0 }}</td>
                   <td>{{ coveragePercent(event) }}%</td>
                   <td>{{ totalBags(event) }}</td>
                   <td>{{ totalVolunteers(event) }}</td>

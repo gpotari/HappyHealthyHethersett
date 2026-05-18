@@ -631,6 +631,12 @@ img {
   text-decoration: none;
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
 .btn:focus-visible,
 .nav-toggle:focus-visible,
 input:focus,
@@ -1035,6 +1041,26 @@ a:focus-visible {
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 0.42rem;
+}
+
+.litter-pick-card__attendance-button {
+  align-self: flex-start;
+  min-height: 34px;
+  min-width: 84px;
+  padding: 0.38rem 0.72rem;
+  font-size: 0.86rem;
+}
+
+.litter-pick-card__attendance-button.is-active {
+  border-color: var(--green-850);
+  background: var(--green-850);
+  color: var(--white);
+}
+
+.litter-pick-card__attendance-button.is-active:hover,
+.litter-pick-card__attendance-button.is-active:focus-visible {
+  background: var(--green-950);
+  color: var(--white);
 }
 
 .litter-pick-card__contact {

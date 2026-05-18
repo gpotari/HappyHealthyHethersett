@@ -2551,7 +2551,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       meetingPointLat: hasCoordinates ? Number(event.meetingPointLat) : undefined,
       meetingPointLng: hasCoordinates ? Number(event.meetingPointLng) : undefined,
       capacity: undefined,
-      registeredCount: undefined,
+      registeredCount: this.safeNumber(event.registeredCount),
       whatToBring: '',
       equipmentProvided: 'Bags and litter pickers will be provided.',
       difficulty: '',
@@ -3055,7 +3055,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     return this.teamStickers[index % this.teamStickers.length];
   }
 
-  private safeNumber(value: number): number {
+  private safeNumber(value: number | null | undefined): number {
     return Number.isFinite(Number(value)) ? Number(value) : 0;
   }
 

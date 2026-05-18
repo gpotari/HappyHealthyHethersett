@@ -89,6 +89,22 @@ public static class DatabaseInitializer
             ADD COLUMN IF NOT EXISTS `VolunteersGoal` int NULL;
             """);
         await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS `litter_pick_attendances` (
+                `LitterPickEventId` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+                `UserId` char(36) CHARACTER SET ascii NOT NULL,
+                `CreatedAt` datetime(6) NOT NULL,
+                CONSTRAINT `PK_litter_pick_attendances` PRIMARY KEY (`LitterPickEventId`, `UserId`)
+            ) CHARACTER SET=utf8mb4;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_litter_pick_attendances_UserId`
+            ON `litter_pick_attendances` (`UserId`);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_litter_pick_attendances_CreatedAt`
+            ON `litter_pick_attendances` (`CreatedAt`);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS `feedback_messages` (
                 `Id` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
                 `CreatedAt` datetime(6) NOT NULL,

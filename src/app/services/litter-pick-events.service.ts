@@ -3,6 +3,11 @@ import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, map, tap } from 'rxjs';
 import { LitterPickEvent } from '../models/litter-pick-event';
 
+export interface LitterPickAttendanceResponse {
+  eventId: string;
+  attending: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LitterPickEventsService {
   private readonly apiUrl = '/api/litter-pick-events';
@@ -29,6 +34,20 @@ export class LitterPickEventsService {
     return this.http
       .get<LitterPickEvent[]>(this.publicApiUrl)
       .pipe(map((events) => this.sortEvents(events, 'asc')));
+  }
+
+  loadMyAttendance() {
+    return this.http
+      .get<{ eventIds: string[] }>(`${this.apiUrl}/attendance`, { withCredentials: true })
+      .pipe(map((response) => new Set(response.eventIds || [])));
+  }
+
+  setAttendance(eventId: string, attending: boolean) {
+    return this.http.put<LitterPickAttendanceResponse>(
+      `${this.apiUrl}/${encodeURIComponent(eventId)}/attendance`,
+      { attending },
+      { withCredentials: true }
+    );
   }
 
   setEvents(events: LitterPickEvent[]) {

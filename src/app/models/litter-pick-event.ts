@@ -32,6 +32,7 @@ export interface LitterPickEvent {
   meetingPointLng?: number;
   capacity?: number;
   registeredCount?: number;
+  isAttending?: boolean;
   whatToBring?: string;
   equipmentProvided?: string;
   difficulty?: 'Easy' | 'Moderate' | 'Challenging' | string;

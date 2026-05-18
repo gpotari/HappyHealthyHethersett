@@ -57,6 +57,18 @@
           </p>
 
           <div class="litter-pick-card__actions">
+            <button
+              class="btn btn--outline litter-pick-card__attendance-button"
+              type="button"
+              [class.is-active]="event.isAttending"
+              [disabled]="!currentUser || attendanceUpdating[event.id]"
+              [attr.aria-pressed]="currentUser ? !!event.isAttending : null"
+              [attr.aria-label]="attendanceAriaLabel(event)"
+              [attr.title]="attendanceAriaLabel(event)"
+              (click)="toggleAttendance(event)"
+            >
+              {{ currentUser ? attendanceButtonLabel(event) : 'Sign in to join' }}
+            </button>
             <a class="btn btn--primary litter-pick-card__contact" [href]="contactHref(event)">
               <span class="litter-pick-card__contact-icon" aria-hidden="true" *ngIf="contactEmail(event)">
                 <svg viewBox="0 0 24 24" focusable="false">
