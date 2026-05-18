@@ -7,7 +7,7 @@
         This page explains the small amount of information the Happy Healthy Hethersett website stores so the site can work
         properly, especially when you sign in to manage events, litter picks, or reports.
       </p>
-      <p class="policy-hero__updated">Last updated: 13 May 2026</p>
+      <p class="policy-hero__updated">Last updated: 18 May 2026</p>
     </div>
   </section>
 
@@ -16,8 +16,8 @@
       <article class="policy-panel">
         <h2>Cookies and local storage</h2>
         <p>
-          We do not currently use analytics, advertising cookies, marketing pixels, or third-party tracking tools. The storage we
-          use is there to keep account features working after you sign in.
+          We use strictly necessary storage for account features. If you choose to allow it, we also use Firebase Analytics to
+          understand anonymous visit and page-view counts.
         </p>
 
         <div class="policy-storage-list" aria-label="Storage used by this website">
@@ -36,11 +36,21 @@
             <p>Local browser storage containing basic account details, such as your name, email, roles, and avatar preview.</p>
             <span>Strictly necessary</span>
           </div>
+          <div class="policy-storage-item">
+            <h3>hhh.analytics.consent</h3>
+            <p>Local browser storage that remembers whether you allowed or declined optional Firebase Analytics.</p>
+            <span>Preference</span>
+          </div>
+          <div class="policy-storage-item">
+            <h3>Firebase Analytics</h3>
+            <p>Optional analytics used to count visits and page views after you allow analytics.</p>
+            <span>Optional</span>
+          </div>
         </div>
 
         <p>
-          Because these are used for login and account security, we treat them as strictly necessary. You can remove them by
-          signing out or clearing your browser storage, although account features may stop working until you sign in again.
+          The account storage is used for login and account security, so we treat it as strictly necessary. Analytics remains off
+          unless you allow it.
         </p>
       </article>
 
@@ -74,8 +84,13 @@
           website's saved sign-in state on this device.
         </p>
         <p>
-          If we add analytics or other non-essential tracking in the future, we will ask for consent before turning it on.
+          Your current analytics preference is <strong>{{ analyticsPreferenceLabel }}</strong>.
         </p>
+        <div class="policy-choice-actions" aria-label="Analytics preference controls">
+          <button class="btn btn--primary" type="button" (click)="acceptAnalytics()">Allow analytics</button>
+          <button class="btn btn--outline" type="button" (click)="declineAnalytics()">Turn analytics off</button>
+          <button class="btn btn--text" type="button" (click)="clearAnalyticsPreference()">Ask me again</button>
+        </div>
         <a class="btn btn--primary" [routerLink]="['/']" fragment="contact">Contact us</a>
       </article>
     </div>

@@ -21,8 +21,8 @@
           <dd>Community planting</dd>
         </div>
         <div>
-          <dt>2026</dt>
-          <dd>Care begins</dd>
+          <dt>2050</dt>
+          <dd>Capsule opens</dd>
         </div>
       </dl>
     </header>
@@ -187,12 +187,64 @@
 
       <article class="timeline__entry" role="listitem" aria-labelledby="timeline-6-title" #timelineEntry>
         <div class="timeline__marker" aria-hidden="true">
+          <span>16</span>
+          <small>May 2026</small>
+        </div>
+        <div class="timeline__content">
+          <time datetime="2026-05-16" class="visually-hidden">16 May 2026</time>
+          <p class="timeline__phase">Official opening</p>
+          <h3 id="timeline-6-title">Back Pocket Forest opens with a new lectern and time capsule</h3>
+          <p>
+            Saturday 16 May 2026 marked the official opening of the Back Pocket Forest, with the new information lectern
+            unveiled and a time capsule buried for future generations to reopen in 2050.
+          </p>
+          <p>
+            The celebration recognised more than 800 trees now growing behind the Village Hall and the community effort
+            that planted, weaved and mulched the forest into life. Thank you to MP Ben Goldsborough, local councillors
+            Ben Weston and Kathryn Cross, South Norfolk Council for funding the project, Adam Loynes for designing the
+            lectern, Linda Wishart for creating the unveiling curtain, every HEAT volunteer involved, and the local
+            linnet for keeping an eye on proceedings.
+          </p>
+          <dl class="timeline__stats" aria-label="Official opening highlights">
+            <div>
+              <dt>Trees growing</dt>
+              <dd>800+</dd>
+            </div>
+            <div>
+              <dt>Capsule opens</dt>
+              <dd>2050</dd>
+            </div>
+            <div>
+              <dt>New guide</dt>
+              <dd>Lectern</dd>
+            </div>
+          </dl>
+          <div class="timeline__gallery" aria-label="Official opening photo gallery">
+            <figure class="timeline__photo" *ngFor="let image of officialOpeningImages; let i = index">
+              <button
+                class="timeline__thumbnail"
+                type="button"
+                (click)="openLightbox(i, officialOpeningImages)"
+                [attr.aria-label]="'View larger image'"
+              >
+                <picture>
+                  <source type="image/webp" [srcset]="image.thumbSrc" />
+                  <img [src]="image.fallbackSrc" [alt]="image.alt" loading="lazy" decoding="async" width="720" height="540" />
+                </picture>
+              </button>
+            </figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="timeline__entry" role="listitem" aria-labelledby="timeline-7-title" #timelineEntry>
+        <div class="timeline__marker" aria-hidden="true">
           <span>Next</span>
           <small>Steps</small>
         </div>
         <div class="timeline__content">
           <p class="timeline__phase">Long-term stewardship</p>
-          <h3 id="timeline-6-title">Watching the forest mature</h3>
+          <h3 id="timeline-7-title">Watching the forest mature</h3>
           <p>
             Over the coming seasons, the community will track growth, share updates and continue caring for the site as it
             develops into a dense, biodiverse pocket woodland.

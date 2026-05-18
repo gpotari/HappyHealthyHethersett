@@ -111,3 +111,18 @@ Generate an optimized build in `dist/happy-healthy-hethersett`:
 ```bash
 npm run build
 ```
+
+## Firebase Analytics
+The site includes an optional Firebase Analytics integration for anonymous visit and page-view counts. It is consent-based and
+disabled by default.
+
+1. Create a Firebase project, add a Web app, and enable Google Analytics for the project.
+2. Copy the Web app config values into `src/assets/firebase-config.json`.
+3. Change `"enabled": false` to `"enabled": true`.
+4. Rebuild and redeploy the Angular site:
+   ```bash
+   npm run build
+   ```
+
+Analytics will not load until a visitor chooses "Allow analytics" in the cookie banner. Visitors can change that choice on the
+Privacy & cookies page.

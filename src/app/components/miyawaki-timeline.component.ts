@@ -43,6 +43,16 @@ export class MiyawakiTimelineComponent {
     this.timelineImage('fencing-complete-02', 'Finished fence line with the newly planted woodland behind it.')
   ];
 
+  officialOpeningImages: TimelineImage[] = [
+    this.timelineImage('official-opening-01', 'Guests gathered beside the covered Back Pocket Forest lectern before the unveiling.'),
+    this.timelineImage('official-opening-02', 'The new Back Pocket Forest information lectern unveiled beside the young woodland.'),
+    this.timelineImage('official-opening-03', 'Close-up of the Back Pocket Forest lectern explaining the Miyawaki method and planted species.'),
+    this.timelineImage('official-opening-04', 'A time capsule being buried beside the Back Pocket Forest.'),
+    this.timelineImage('official-opening-05', 'A volunteer helping bury the Back Pocket Forest time capsule.'),
+    this.timelineImage('official-opening-06', 'A supporter standing with a spade after helping with the time capsule ceremony.'),
+    this.timelineImage('official-opening-07', 'A councillor helping bury the time capsule at the Back Pocket Forest opening.')
+  ];
+
   activeIndex = 0;
   activeGallery: TimelineImage[] = this.workBeginsImages;
   lightboxOpen = false;

@@ -1,0 +1,17 @@
+@if (analytics.shouldShowBanner()) {
+  <aside class="cookie-consent" role="dialog" aria-label="Analytics preference" aria-live="polite">
+    <div class="cookie-consent__copy">
+      <h2>Help us understand site visits?</h2>
+      <p>
+        We use Firebase Analytics only if you agree. It helps us see anonymous visit and page-view counts so the site can
+        improve over time.
+      </p>
+      <a [routerLink]="['/privacy-cookies']">Privacy &amp; cookies</a>
+    </div>
+
+    <div class="cookie-consent__actions">
+      <button class="btn btn--outline" type="button" (click)="declineAnalytics()">No thanks</button>
+      <button class="btn btn--primary" type="button" (click)="acceptAnalytics()">Allow analytics</button>
+    </div>
+  </aside>
+}
