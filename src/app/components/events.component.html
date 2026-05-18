@@ -13,16 +13,14 @@
           role="listitem"
           *ngFor="let event of events; let i = index"
           [attr.aria-labelledby]="'event-' + i + '-title'"
+          [class.event-card--with-image]="eventImageUrl(event)"
         >
-          <div class="event-card__header">
-            <h3 [id]="'event-' + i + '-title'">{{ event.title }}</h3>
-            <p class="event-card__meta">
-              <time [attr.datetime]="formatDateTime(event.date, event.start)">{{ formatEventDate(event) }}</time>
-              <ng-container *ngIf="event.location"> • {{ event.location }}</ng-container>
-            </p>
+          <div class="event-card__date" aria-hidden="true">
+            <strong>{{ dateTile(event).day }}</strong>
+            <span>{{ dateTile(event).month }}</span>
           </div>
           <button
-            *ngIf="event.imageUrl"
+            *ngIf="eventImageUrl(event)"
             class="event-card__image-button"
             type="button"
             (click)="openImage(event)"
@@ -30,21 +28,45 @@
           >
             <img
               class="event-card__image"
-              [src]="event.imageUrl"
-              [alt]="event.imageAlt || event.title"
+              [src]="eventImageUrl(event)"
+              [alt]="eventImageAlt(event)"
               loading="lazy"
             />
           </button>
-          <p>{{ event.description }}</p>
-          <a class="btn btn--secondary" *ngIf="event.ctaHref" [href]="event.ctaHref">
-            {{ ctaLabel(event) }}
-          </a>
-          <p class="event-card__meta" *ngIf="event.note">
-            <ng-container *ngIf="event.phone && noteParts(event) as parts; else plainNote">
-              {{ parts.before }}<a [href]="phoneLink(event.phone)">{{ event.phone }}</a>{{ parts.after }}
-            </ng-container>
-            <ng-template #plainNote>{{ event.note }}</ng-template>
-          </p>
+          <div class="event-card__body">
+            <div class="event-card__header">
+              <p class="event-card__eyebrow">{{ eventTypeLabel(event) }}</p>
+              <h3 [id]="'event-' + i + '-title'">{{ event.title }}</h3>
+            </div>
+
+            <dl class="event-card__details">
+              <div>
+                <dt>When</dt>
+                <dd>
+                  <time [attr.datetime]="formatDateTime(event.date, event.start)">{{ formatEventDate(event) }}</time>
+                </dd>
+              </div>
+              <div *ngIf="event.location">
+                <dt>Where</dt>
+                <dd>{{ event.location }}</dd>
+              </div>
+            </dl>
+
+            <p class="event-card__description">{{ event.description }}</p>
+
+            <p class="event-card__note" *ngIf="event.note">
+              <ng-container *ngIf="event.phone && noteParts(event) as parts; else plainNote">
+                {{ parts.before }}<a [href]="phoneLink(event.phone)">{{ event.phone }}</a>{{ parts.after }}
+              </ng-container>
+              <ng-template #plainNote>{{ event.note }}</ng-template>
+            </p>
+
+            <div class="event-card__actions" *ngIf="event.ctaHref">
+              <a class="btn btn--secondary" [href]="event.ctaHref">
+                {{ ctaLabel(event) }}
+              </a>
+            </div>
+          </div>
         </article>
       </div>
     </ng-container>

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { forkJoin, Subscription } from 'rxjs';
 import { EventItem } from '../models/event-item';
+import { FeedbackMessage } from '../models/feedback-message';
 import { LitterPickArea, LitterPickEvent } from '../models/litter-pick-event';
 import { LitterReport } from '../models/litter-report';
 import { PhotoAttachment } from '../models/photo-attachment';
@@ -16,11 +17,14 @@ import {
 import { LITTER_PICK_TEAM_STICKERS, TeamSticker } from '../data/team-stickers';
 import { EventsService } from '../services/events.service';
 import { AuthService } from '../services/auth.service';
+import { FeedbackService } from '../services/feedback.service';
 import { LitterPickEventsService } from '../services/litter-pick-events.service';
 import { LitterReportsService } from '../services/litter-reports.service';
 
-type AdminSection = 'events' | 'reports' | 'litterPicks' | 'users';
+type AdminSection = 'events' | 'feedback' | 'reports' | 'litterPicks' | 'users';
 type AuthMode = 'signIn' | 'register';
+type EventRequiredField = 'title' | 'date' | 'start' | 'end' | 'description';
+type LitterPickRequiredField = 'date' | 'start' | 'end' | 'meetingPoint';
 
 type MapTile = {
   key: string;
@@ -79,6 +83,10 @@ type PdfPage = {
   styleUrl: './admin-events.component.css'
 })
 export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy {
+  private readonly maxPhotosPerItem = 12;
+  private readonly uploadPhotoMaxEdge = 1400;
+  private readonly uploadPhotoQuality = 0.78;
+
   readonly defaultMeetingPoint = {
     label: 'Hethersett Methodist Church',
     lat: 52.60099,
@@ -103,6 +111,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   errorMessage = '';
   statusMessage = '';
   events: EventItem[] = [];
+  feedbackMessages: FeedbackMessage[] = [];
   reports: LitterReport[] = [];
   litterPickEvents: LitterPickEvent[] = [];
   users: ManagedUser[] = [];
@@ -115,10 +124,16 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   newUser = this.emptyUserForm();
   reportsLoading = false;
   reportsError = '';
+  feedbackLoading = false;
+  feedbackError = '';
   litterPicksLoading = false;
   litterPicksError = '';
   newEvent: EventItem = this.emptyEvent();
   newLitterPickEvent: LitterPickEvent = this.emptyLitterPickEvent();
+  eventCreateAttempted = false;
+  eventEditAttempted = false;
+  litterPickCreateAttempted = false;
+  litterPickEditAttempted = false;
   showCreateForm = false;
   showLitterPickCreateForm = false;
   showUserCreateForm = false;
@@ -126,6 +141,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   expandedLitterPickIndex: number | null = null;
   isEditing = false;
   isEditingLitterPick = false;
+  litterPickPhotoChangePending = false;
   draftEvent: EventItem | null = null;
   draftLitterPickEvent: LitterPickEvent | null = null;
   activeAreaId: string | null = null;
@@ -160,6 +176,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   private resizeObserver?: ResizeObserver;
   private observedLitterPickMap?: HTMLElement;
   private authSubscription?: Subscription;
+  private adminWorkspaceLoaded = false;
 
   @ViewChild('litterPickMap') litterPickMap?: ElementRef<HTMLElement>;
 
@@ -167,6 +184,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     private host: ElementRef<HTMLElement>,
     private authService: AuthService,
     private eventsService: EventsService,
+    private feedbackService: FeedbackService,
     private litterPickEventsService: LitterPickEventsService,
     private litterReportsService: LitterReportsService
   ) {}
@@ -298,14 +316,16 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
   addEvent(): void {
     this.statusMessage = '';
+    this.eventCreateAttempted = true;
     if (!this.isEventValid(this.newEvent)) {
-      this.errorMessage = 'Please complete all required fields and any CTA details before adding the event.';
+      this.errorMessage = 'Please complete the highlighted fields before creating the event.';
       return;
     }
     this.errorMessage = '';
-    const updated = [...this.events, { ...this.newEvent }];
+    const updated = [...this.events, this.cloneEvent(this.newEvent)];
     this.saveEvents(updated, 'Event added and saved.', () => {
       this.newEvent = this.emptyEvent();
+      this.eventCreateAttempted = false;
       this.showCreateForm = false;
     });
   }
@@ -322,8 +342,9 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
   addLitterPickEvent(): void {
     this.statusMessage = '';
+    this.litterPickCreateAttempted = true;
     if (!this.isLitterPickEventValid(this.newLitterPickEvent)) {
-      this.errorMessage = 'Please add a title and date before creating the litter pick event.';
+      this.errorMessage = this.litterPickValidationMessage('creating');
       return;
     }
 
@@ -340,6 +361,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     const updated = [event, ...this.litterPickEvents];
     this.saveLitterPickEvents(updated, 'Litter pick event created. Use + Team to draw coverage.', (events) => {
       this.newLitterPickEvent = this.emptyLitterPickEvent();
+      this.litterPickCreateAttempted = false;
       this.showLitterPickCreateForm = false;
       this.openLitterPickDraft(events.findIndex((item) => item.id === event.id), true);
     });
@@ -389,7 +411,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       if (!Array.isArray(parsed)) {
         throw new Error('Invalid file format');
       }
-      const normalized = this.sortLatestFirst(parsed.map((item) => ({ ...item })));
+      const normalized = this.sortLatestFirst(parsed.map((item) => this.cloneEvent(item)));
       this.saveEvents(normalized, 'Events loaded from file and saved.');
     } catch {
       this.errorMessage = 'Unable to read that file. Please upload a valid events JSON.';
@@ -398,29 +420,44 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     }
   }
 
-  async attachImage(event: Event, target: EventItem): Promise<void> {
+  async attachEventPhotos(event: Event, target: EventItem): Promise<void> {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) {
+    const files = Array.from(input.files || []);
+    if (!files.length) {
       return;
     }
     try {
-      const dataUrl = await this.readFileAsDataUrl(file);
-      target.imageUrl = dataUrl;
-      if (!target.imageAlt) {
-        target.imageAlt = target.title || 'Event image';
+      const currentPhotos = target.photos || [];
+      const availablePhotoSlots = this.maxPhotosPerItem - currentPhotos.length;
+      if (availablePhotoSlots <= 0) {
+        this.errorMessage = `You can attach up to ${this.maxPhotosPerItem} photos.`;
+        return;
       }
-      this.statusMessage = 'Image attached.';
+
+      const photos = await Promise.all(
+        files
+          .filter((file) => file.type.startsWith('image/'))
+          .slice(0, availablePhotoSlots)
+          .map((file) => this.createPhotoAttachment(file))
+      );
+      if (!photos.length) {
+        this.errorMessage = 'Please choose image files to attach.';
+        return;
+      }
+      target.photos = [...currentPhotos, ...photos];
+      target.imageUrl = '';
+      target.imageAlt = '';
+      this.errorMessage = '';
+      this.statusMessage = `${photos.length} photo${photos.length === 1 ? '' : 's'} attached. Save changes to keep them.`;
     } catch {
-      this.errorMessage = 'Unable to read that image file.';
+      this.errorMessage = 'Unable to read one of those photos.';
     } finally {
       input.value = '';
     }
   }
 
-  removeImage(target: EventItem): void {
-    target.imageUrl = '';
-    target.imageAlt = '';
+  removeEventPhoto(target: EventItem, index: number): void {
+    target.photos = (target.photos || []).filter((_, photoIndex) => photoIndex !== index);
   }
 
   async attachLitterPickPhotos(event: Event, target: LitterPickEvent): Promise<void> {
@@ -432,17 +469,25 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
     try {
       const currentPhotos = target.photos || [];
+      const availablePhotoSlots = this.maxPhotosPerItem - currentPhotos.length;
+      if (availablePhotoSlots <= 0) {
+        this.errorMessage = `You can attach up to ${this.maxPhotosPerItem} photos.`;
+        return;
+      }
+
       const photos = await Promise.all(
         files
           .filter((file) => file.type.startsWith('image/'))
-          .slice(0, Math.max(0, 12 - currentPhotos.length))
-          .map(async (file) => ({
-            fileName: file.name,
-            contentType: file.type || 'image/jpeg',
-            dataUrl: await this.readFileAsDataUrl(file)
-          }))
+          .slice(0, availablePhotoSlots)
+          .map((file) => this.createPhotoAttachment(file))
       );
+      if (!photos.length) {
+        this.errorMessage = 'Please choose image files to attach.';
+        return;
+      }
       target.photos = [...currentPhotos, ...photos];
+      this.markLitterPickPhotoChangesPending(target);
+      this.errorMessage = '';
       this.statusMessage = `${photos.length} photo${photos.length === 1 ? '' : 's'} attached. Save changes to keep them.`;
     } catch {
       this.errorMessage = 'Unable to read one of those photos.';
@@ -453,6 +498,9 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
   removeLitterPickPhoto(target: LitterPickEvent, index: number): void {
     target.photos = (target.photos || []).filter((_, photoIndex) => photoIndex !== index);
+    this.markLitterPickPhotoChangesPending(target);
+    this.errorMessage = '';
+    this.statusMessage = 'Photo removed. Save changes to keep it.';
   }
 
   toggleCreateForm(): void {
@@ -461,7 +509,9 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       this.expandedIndex = null;
       this.isEditing = false;
       this.draftEvent = null;
+      this.eventCreateAttempted = false;
       this.showLitterPickCreateForm = false;
+      this.litterPickCreateAttempted = false;
       this.closeLitterPickDetails();
     }
     this.statusMessage = '';
@@ -472,6 +522,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.showLitterPickCreateForm = !this.showLitterPickCreateForm;
     if (this.showLitterPickCreateForm) {
       this.newLitterPickEvent = this.emptyLitterPickEvent();
+      this.litterPickCreateAttempted = false;
       this.showCreateForm = false;
       this.closeDetails();
       this.closeLitterPickDetails();
@@ -482,20 +533,18 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.errorMessage = '';
   }
 
-  isDataUrl(value?: string): boolean {
-    return Boolean(value && value.startsWith('data:'));
-  }
-
   toggleDetails(index: number): void {
     if (this.expandedIndex === index) {
       this.expandedIndex = null;
       this.isEditing = false;
       this.draftEvent = null;
+      this.eventEditAttempted = false;
       return;
     }
     this.expandedIndex = index;
     this.isEditing = false;
-    this.draftEvent = { ...this.events[index] };
+    this.draftEvent = this.cloneEvent(this.events[index]);
+    this.eventEditAttempted = false;
     this.showCreateForm = false;
     this.statusMessage = '';
     this.errorMessage = '';
@@ -518,11 +567,14 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.expandedIndex = null;
     this.isEditing = false;
     this.draftEvent = null;
+    this.eventEditAttempted = false;
   }
 
   closeLitterPickDetails(): void {
     this.expandedLitterPickIndex = null;
     this.isEditingLitterPick = false;
+    this.litterPickPhotoChangePending = false;
+    this.litterPickEditAttempted = false;
     this.draftLitterPickEvent = null;
     this.activeAreaId = null;
     this.dragStart = null;
@@ -552,6 +604,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     }
 
     this.isEditingLitterPick = true;
+    this.litterPickEditAttempted = false;
     this.litterPickMapMode = 'pan';
     this.editingAreaId = null;
     this.meetingPointTarget = null;
@@ -564,16 +617,18 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     if (this.expandedIndex === null || !this.draftEvent) {
       return;
     }
+    this.eventEditAttempted = true;
     if (!this.isEventValid(this.draftEvent)) {
-      this.errorMessage = 'Please complete all required fields and any CTA details before saving.';
+      this.errorMessage = 'Please complete the highlighted fields before saving.';
       return;
     }
     const updated = [...this.events];
-    updated[this.expandedIndex] = { ...this.draftEvent };
+    updated[this.expandedIndex] = this.cloneEvent(this.draftEvent);
     this.saveEvents(updated, 'Event updated and saved.', () => {
       this.expandedIndex = null;
       this.isEditing = false;
       this.draftEvent = null;
+      this.eventEditAttempted = false;
     });
   }
 
@@ -582,8 +637,9 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
+    this.litterPickEditAttempted = true;
     if (!this.isLitterPickEventValid(this.draftLitterPickEvent)) {
-      this.errorMessage = 'Please add a title and date before saving.';
+      this.errorMessage = this.litterPickValidationMessage('saving');
       return;
     }
 
@@ -596,6 +652,8 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       const index = events.findIndex((event) => event.id === this.draftLitterPickEvent?.id);
       this.openLitterPickDraft(index, false);
       this.isEditingLitterPick = false;
+      this.litterPickPhotoChangePending = false;
+      this.litterPickEditAttempted = false;
       this.editingAreaId = null;
       this.areaEditDrag = undefined;
     });
@@ -648,6 +706,15 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       this.loadReports();
     }
 
+    if (section === 'feedback') {
+      this.closeDetails();
+      this.closeLitterPickDetails();
+      this.showCreateForm = false;
+      this.showLitterPickCreateForm = false;
+      this.showUserCreateForm = false;
+      this.loadFeedbackMessages();
+    }
+
     if (section === 'events') {
       this.closeLitterPickDetails();
       this.showLitterPickCreateForm = false;
@@ -685,7 +752,8 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.isUnlocked = user?.roles.includes('Admin') ?? false;
 
     if (this.isUnlocked) {
-      if (!wasUnlocked || previousUserId !== user?.id) {
+      if (!this.adminWorkspaceLoaded || !wasUnlocked || previousUserId !== user?.id) {
+        this.adminWorkspaceLoaded = true;
         this.loadAdminWorkspace();
       }
       return;
@@ -701,12 +769,15 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       this.loadEvents();
     });
     this.loadReports();
+    this.loadFeedbackMessages();
     this.loadLitterPickEvents();
     this.loadUsers();
   }
 
   private clearAdminWorkspace(): void {
+    this.adminWorkspaceLoaded = false;
     this.events = [];
+    this.feedbackMessages = [];
     this.reports = [];
     this.litterPickEvents = [];
     this.users = [];
@@ -871,6 +942,10 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return 'Never';
     }
 
+    return this.formatDateTime(value);
+  }
+
+  private formatDateTime(value: string): string {
     return new Intl.DateTimeFormat('en-GB', {
       dateStyle: 'medium',
       timeStyle: 'short'
@@ -881,15 +956,34 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.loadReports();
   }
 
+  refreshFeedback(): void {
+    this.loadFeedbackMessages();
+  }
+
+  deleteFeedback(message: FeedbackMessage): void {
+    this.statusMessage = '';
+    this.feedbackError = '';
+    this.feedbackService.deleteFeedback(message.id).subscribe({
+      next: () => {
+        this.feedbackMessages = this.feedbackMessages.filter((item) => item.id !== message.id);
+        this.statusMessage = 'Feedback message deleted.';
+      },
+      error: () => {
+        this.feedbackError = 'Unable to delete that feedback message.';
+      }
+    });
+  }
+
+  formatFeedbackDate(message: FeedbackMessage): string {
+    return this.formatDateTime(message.createdAt);
+  }
+
   formatReportDate(report: LitterReport): string {
     if (!report.createdAt) {
       return 'Unknown date';
     }
 
-    return new Intl.DateTimeFormat('en-GB', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    }).format(new Date(report.createdAt));
+    return this.formatDateTime(report.createdAt);
   }
 
   reportMapLink(report: LitterReport): string {
@@ -1016,6 +1110,27 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.editingAreaId = null;
   }
 
+  clearMeetingPointCoordinates(target: LitterPickEvent): void {
+    if (target === this.draftLitterPickEvent) {
+      if (target.status === 'closed') {
+        return;
+      }
+
+      if (!this.isEditingLitterPick) {
+        this.isEditingLitterPick = true;
+      }
+    }
+
+    target.meetingPointLat = undefined;
+    target.meetingPointLng = undefined;
+    this.errorMessage = '';
+    this.statusMessage =
+      target === this.draftLitterPickEvent
+        ? 'Start coordinates removed. Save changes to keep them removed.'
+        : 'Start coordinates removed.';
+    this.setLitterPickMapMode('pan');
+  }
+
   toggleLitterPickWorkspaceFullscreen(): void {
     this.litterPickWorkspaceFullscreen = !this.litterPickWorkspaceFullscreen;
     setTimeout(() => this.updateLitterPickViewportSize());
@@ -1076,9 +1191,13 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
-    target.meetingPoint = 'Selected meeting point';
     target.meetingPointLat = Number(point.lat.toFixed(5));
     target.meetingPointLng = Number(point.lng.toFixed(5));
+    this.errorMessage = '';
+    this.statusMessage =
+      target === this.draftLitterPickEvent
+        ? 'Start coordinates set. Save changes to keep them.'
+        : 'Start coordinates set.';
     this.setLitterPickMapMode('pan');
   }
 
@@ -1346,11 +1465,19 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     return `translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})`;
   }
 
+  hasMeetingPointCoordinates(event: LitterPickEvent | null): boolean {
+    return Number.isFinite(Number(event?.meetingPointLat)) && Number.isFinite(Number(event?.meetingPointLng));
+  }
+
   meetingPointDisplay(event: LitterPickEvent | null): string {
-    return event?.meetingPoint?.trim() || this.defaultMeetingPoint.label;
+    return event?.meetingPoint?.trim() || 'Event start point not set';
   }
 
   meetingPointCoordinates(event: LitterPickEvent | null): string {
+    if (!this.hasMeetingPointCoordinates(event)) {
+      return 'Coordinates not set';
+    }
+
     const point = this.meetingPointCoordinate(event);
     return `${point.lat.toFixed(5)}° N, ${point.lng.toFixed(5)}° E`;
   }
@@ -2142,6 +2269,22 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     });
   }
 
+  private loadFeedbackMessages(): void {
+    this.feedbackLoading = true;
+    this.feedbackError = '';
+
+    this.feedbackService.loadFeedback().subscribe({
+      next: (messages) => {
+        this.feedbackMessages = messages;
+        this.feedbackLoading = false;
+      },
+      error: () => {
+        this.feedbackError = 'Unable to load feedback messages.';
+        this.feedbackLoading = false;
+      }
+    });
+  }
+
   loadUsers(): void {
     if (!this.canManageUsers) {
       return;
@@ -2191,7 +2334,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     successMessage: string,
     afterSave?: () => void
   ): void {
-    this.eventsService.setEvents(updated).subscribe({
+    this.eventsService.setEvents(updated.map((event) => this.cloneEvent(event))).subscribe({
       next: (events) => {
         this.events = this.sortLatestFirst(events);
         this.statusMessage = successMessage;
@@ -2260,6 +2403,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
   private emptyEvent(): EventItem {
     return {
+      id: this.createId('event'),
       title: '',
       date: '',
       start: '',
@@ -2271,8 +2415,39 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       note: '',
       phone: '',
       imageUrl: '',
-      imageAlt: ''
+      imageAlt: '',
+      photos: []
     };
+  }
+
+  private cloneEvent(event: EventItem): EventItem {
+    const photos = (event.photos || []).map((photo) => ({ ...photo }));
+    if (!photos.length && this.isDataUrl(event.imageUrl)) {
+      photos.push({
+        fileName: event.imageAlt?.trim() || event.title?.trim() || 'event-photo',
+        contentType: this.dataUrlContentType(event.imageUrl) || 'image/jpeg',
+        dataUrl: event.imageUrl || ''
+      });
+    }
+
+    return {
+      ...event,
+      id: event.id || this.createId('event'),
+      ctaLabel: '',
+      ctaHref: '',
+      imageUrl: this.isDataUrl(event.imageUrl) ? '' : event.imageUrl || '',
+      imageAlt: event.imageAlt || '',
+      photos
+    };
+  }
+
+  private isDataUrl(value?: string): boolean {
+    return Boolean(value && value.startsWith('data:'));
+  }
+
+  private dataUrlContentType(value?: string): string | null {
+    const match = /^data:([^;,]+)[;,]/.exec(value || '');
+    return match?.[1] || null;
   }
 
   private emptyLitterPickEvent(): LitterPickEvent {
@@ -2281,13 +2456,19 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
     return {
       id: '',
-      title: '',
+      title: 'Community litter pick',
       date: this.todayInputValue(),
       start: this.timeInputValue(start),
       end: this.timeInputValue(end),
+      description: 'Join neighbours for a friendly community litter pick around Hethersett. Bags and litter pickers will be provided.',
       meetingPoint: this.defaultMeetingPoint.label,
-      meetingPointLat: this.defaultMeetingPoint.lat,
-      meetingPointLng: this.defaultMeetingPoint.lng,
+      meetingPointLat: undefined,
+      meetingPointLng: undefined,
+      accessibilityNotes: '',
+      weatherPlan: 'If the weather is unsafe, we will rearrange the session.',
+      contactName: '',
+      contactEmail: '',
+      contactPhone: '',
       notes: '',
       status: 'open',
       areas: [],
@@ -2296,15 +2477,39 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   private isEventValid(event: EventItem): boolean {
-    const hasCore =
-      Boolean(event.title && event.date && event.start && event.end && event.description);
-    const hasCta = Boolean(event.ctaLabel || event.ctaHref);
-    const ctaIsValid = !hasCta || Boolean(event.ctaLabel && event.ctaHref);
-    return hasCore && ctaIsValid;
+    return !(['title', 'date', 'start', 'end', 'description'] as EventRequiredField[]).some((field) =>
+      this.isEventFieldMissing(event, field)
+    );
+  }
+
+  isEventFieldMissing(event: EventItem | null | undefined, field: EventRequiredField): boolean {
+    return !String(event?.[field] || '').trim();
   }
 
   private isLitterPickEventValid(event: LitterPickEvent): boolean {
-    return Boolean(event.title.trim() && event.date);
+    return (
+      !(['date', 'start', 'end', 'meetingPoint'] as LitterPickRequiredField[]).some((field) =>
+        this.isLitterPickFieldMissing(event, field)
+      ) && !this.isLitterPickContactEmailInvalid(event)
+    );
+  }
+
+  isLitterPickFieldMissing(event: LitterPickEvent | null | undefined, field: LitterPickRequiredField): boolean {
+    return !String(event?.[field] || '').trim();
+  }
+
+  isLitterPickContactEmailInvalid(event: LitterPickEvent | null | undefined): boolean {
+    const email = event?.contactEmail?.trim();
+    return Boolean(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  }
+
+  private litterPickValidationMessage(action: 'creating' | 'saving'): string {
+    const suffix = action === 'creating' ? 'creating the litter pick event' : 'saving';
+    if (this.isLitterPickContactEmailInvalid(action === 'creating' ? this.newLitterPickEvent : this.draftLitterPickEvent)) {
+      return `Please enter a valid contact email address before ${suffix}.`;
+    }
+
+    return `Please complete the highlighted fields before ${suffix}.`;
   }
 
   private sortLatestFirst(events: EventItem[]): EventItem[] {
@@ -2319,21 +2524,45 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.expandedLitterPickIndex = index;
     this.draftLitterPickEvent = this.cloneLitterPickEvent(this.litterPickEvents[index]);
     this.isEditingLitterPick = editing && this.draftLitterPickEvent.status === 'open';
+    this.litterPickPhotoChangePending = false;
+    this.litterPickEditAttempted = false;
     this.litterPickMapMode = 'pan';
     this.activeAreaId = this.draftLitterPickEvent.areas[0]?.id || null;
   }
 
+  private markLitterPickPhotoChangesPending(target: LitterPickEvent): void {
+    if (this.draftLitterPickEvent && target === this.draftLitterPickEvent) {
+      this.litterPickPhotoChangePending = true;
+    }
+  }
+
   private cloneLitterPickEvent(event: LitterPickEvent): LitterPickEvent {
     const usedStickerLabels = new Set<string>();
+    const hasCoordinates =
+      Number.isFinite(Number(event.meetingPointLat)) && Number.isFinite(Number(event.meetingPointLng));
+    const legacyContactPhone = event.contactPhone?.trim() || '';
+    const legacyContactEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyContactPhone) ? legacyContactPhone : '';
+
     return {
       ...event,
-      meetingPoint: event.meetingPoint?.trim() || this.defaultMeetingPoint.label,
-      meetingPointLat: Number.isFinite(Number(event.meetingPointLat))
-        ? Number(event.meetingPointLat)
-        : this.defaultMeetingPoint.lat,
-      meetingPointLng: Number.isFinite(Number(event.meetingPointLng))
-        ? Number(event.meetingPointLng)
-        : this.defaultMeetingPoint.lng,
+      title: this.litterPickTitleFor(event),
+      description: event.description || '',
+      meetingPoint: event.meetingPoint?.trim() || '',
+      meetingPointLat: hasCoordinates ? Number(event.meetingPointLat) : undefined,
+      meetingPointLng: hasCoordinates ? Number(event.meetingPointLng) : undefined,
+      capacity: undefined,
+      registeredCount: undefined,
+      whatToBring: '',
+      equipmentProvided: 'Bags and litter pickers will be provided.',
+      difficulty: '',
+      familyFriendly: undefined,
+      accessibilityNotes: event.accessibilityNotes || '',
+      weatherPlan: event.weatherPlan || '',
+      contactName: event.contactName || '',
+      contactEmail: event.contactEmail || legacyContactEmail,
+      contactPhone: '',
+      bagsGoal: undefined,
+      volunteersGoal: undefined,
       photos: (event.photos || []).map((photo) => ({ ...photo })),
       areas: (event.areas || []).map((area, index) => {
         const existingSticker = this.findStickerForArea(area);
@@ -2356,6 +2585,24 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
         };
       })
     };
+  }
+
+  private litterPickTitleFor(event: LitterPickEvent): string {
+    if (!event.date) {
+      return 'Community litter pick';
+    }
+
+    const date = new Date(`${event.date}T12:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return 'Community litter pick';
+    }
+
+    const formatted = new Intl.DateTimeFormat('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    }).format(date);
+    return `Community litter pick - ${formatted}`;
   }
 
   private createBoundaryPoints(): MapPoint[] {
@@ -2835,6 +3082,75 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
+  }
+
+  private async createPhotoAttachment(file: File): Promise<PhotoAttachment> {
+    const dataUrl = await this.readImageAsUploadDataUrl(file);
+    return {
+      fileName: file.name,
+      contentType: this.dataUrlContentType(dataUrl) || file.type || 'image/jpeg',
+      dataUrl
+    };
+  }
+
+  private async readImageAsUploadDataUrl(file: File): Promise<string> {
+    if (!file.type.startsWith('image/')) {
+      return this.readFileAsDataUrl(file);
+    }
+
+    try {
+      return await this.compressImageFile(file);
+    } catch {
+      return this.readFileAsDataUrl(file);
+    }
+  }
+
+  private compressImageFile(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const image = new Image();
+
+      image.onload = () => {
+        try {
+          const sourceWidth = image.naturalWidth || image.width;
+          const sourceHeight = image.naturalHeight || image.height;
+
+          if (!sourceWidth || !sourceHeight) {
+            reject(new Error('Image has no dimensions.'));
+            return;
+          }
+
+          const scale = Math.min(1, this.uploadPhotoMaxEdge / Math.max(sourceWidth, sourceHeight));
+          const width = Math.max(1, Math.round(sourceWidth * scale));
+          const height = Math.max(1, Math.round(sourceHeight * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext('2d');
+
+          if (!context) {
+            reject(new Error('Unable to prepare image.'));
+            return;
+          }
+
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, width, height);
+          context.drawImage(image, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', this.uploadPhotoQuality));
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Unable to load image.'));
+      };
+
+      image.src = objectUrl;
+    });
   }
 
   private readFileAsDataUrl(file: File): Promise<string> {

@@ -1,0 +1,83 @@
+<section id="litter-picks" class="section section--litter-picks" aria-labelledby="litter-picks-title">
+  <div class="container">
+    <header class="section__header">
+      <h2 id="litter-picks-title">Community litter picks</h2>
+      <p class="section__intro">
+        Friendly clean-up sessions with clear meeting points. Bags and litter pickers are provided.
+      </p>
+    </header>
+
+    <div class="litter-pick-public__empty card" *ngIf="loading">
+      <p>Loading upcoming litter picks...</p>
+    </div>
+
+    <div class="litter-pick-public__empty card" *ngIf="!loading && error">
+      <p>{{ error }}</p>
+    </div>
+
+    <div class="litter-pick-public__grid" *ngIf="!loading && !error && litterPicks.length; else noLitterPicks">
+      <article class="litter-pick-card" *ngFor="let event of litterPicks">
+        <div class="litter-pick-card__media" [class.has-photo]="primaryPhoto(event)">
+          <img *ngIf="primaryPhoto(event)" [src]="primaryPhoto(event)" alt="Community litter pick" loading="lazy" />
+          <div class="litter-pick-card__date" aria-hidden="true">
+            <strong>{{ dateTile(event).day }}</strong>
+            <span>{{ dateTile(event).month }}</span>
+          </div>
+        </div>
+
+        <div class="litter-pick-card__body">
+          <div class="litter-pick-card__header">
+            <div>
+              <p class="litter-pick-card__eyebrow">{{ formatDate(event) }} · {{ timeRange(event) }}</p>
+              <h3>Community litter pick</h3>
+            </div>
+            <span class="litter-pick-card__status">Open</span>
+          </div>
+
+          <p>{{ shortDescription(event) }}</p>
+
+          <dl class="litter-pick-card__details">
+            <div>
+              <dt>Meet</dt>
+              <dd>{{ meetingPoint(event) }}</dd>
+            </div>
+            <div>
+              <dt>Provided</dt>
+              <dd>{{ providedText() }}</dd>
+            </div>
+          </dl>
+
+          <div class="litter-pick-card__badges" aria-label="Event tags">
+            <span *ngFor="let badge of badges(event)">{{ badge }}</span>
+          </div>
+
+          <p class="litter-pick-card__note" *ngIf="event.accessibilityNotes || event.weatherPlan">
+            <strong *ngIf="event.accessibilityNotes">{{ event.accessibilityNotes }}</strong>
+            <span *ngIf="event.weatherPlan">{{ event.weatherPlan }}</span>
+          </p>
+
+          <div class="litter-pick-card__actions">
+            <a class="btn btn--primary litter-pick-card__contact" [href]="contactHref(event)">
+              <span class="litter-pick-card__contact-icon" aria-hidden="true" *ngIf="contactEmail(event)">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M4 6h16v12H4z" />
+                  <path d="m4 7 8 6 8-6" />
+                  <path d="m4 18 6.5-6" />
+                  <path d="M20 18 13.5 12" />
+                </svg>
+              </span>
+              {{ contactLabel(event) }}
+            </a>
+            <button class="btn btn--secondary" type="button" (click)="downloadCalendar(event)">Add to calendar</button>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <ng-template #noLitterPicks>
+      <div class="litter-pick-public__empty card" *ngIf="!loading && !error">
+        <p>No community litter picks are scheduled right now. Please check back soon.</p>
+      </div>
+    </ng-template>
+  </div>
+</section>

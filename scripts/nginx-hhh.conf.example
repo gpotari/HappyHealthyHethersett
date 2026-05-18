@@ -1,0 +1,38 @@
+# Example nginx config for Happy Healthy Hethersett on Homebrew nginx.
+# Copy to something like:
+#   /opt/homebrew/etc/nginx/servers/happyhealthyhethersett.conf
+#
+# If your live site has a separate `listen 443 ssl;` server block, add the same
+# /api and /swagger location blocks there too. The browser must be able to reach
+# https://happyhealthyhethersett.org/api/... through nginx.
+
+server {
+    listen 80;
+    server_name happyhealthyhethersett.org www.happyhealthyhethersett.org;
+
+    root /opt/homebrew/var/www/hhh;
+    index index.html;
+    client_max_body_size 25m;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /swagger/ {
+        proxy_pass http://127.0.0.1:5000/swagger/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

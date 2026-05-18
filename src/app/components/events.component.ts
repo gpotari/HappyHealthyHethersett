@@ -31,20 +31,45 @@ export class EventsComponent {
     return `${formatted}, ${event.start} – ${event.end}`;
   }
 
+  dateTile(event: EventItem): { day: string; month: string } {
+    if (!event.date) {
+      return { day: 'TBC', month: '' };
+    }
+
+    const eventDate = new Date(`${event.date}T00:00:00`);
+    return {
+      day: new Intl.DateTimeFormat('en-GB', { day: 'numeric' }).format(eventDate),
+      month: new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(eventDate)
+    };
+  }
+
   formatDateTime(date: string, time: string): string {
     return `${date}T${time}`;
+  }
+
+  eventTypeLabel(event: EventItem): string {
+    return event.location?.trim() ? 'Community event' : 'Village event';
   }
 
   ctaLabel(event: EventItem): string {
     return event.ctaLabel?.trim() || 'Learn more';
   }
 
+  eventImageUrl(event: EventItem): string {
+    return event.photos?.[0]?.dataUrl || event.imageUrl || '';
+  }
+
+  eventImageAlt(event: EventItem): string {
+    return event.photos?.[0]?.fileName || event.imageAlt?.trim() || event.title;
+  }
+
   openImage(event: EventItem): void {
-    if (!event.imageUrl) {
+    const imageUrl = this.eventImageUrl(event);
+    if (!imageUrl) {
       return;
     }
-    this.activeImageUrl = event.imageUrl;
-    this.activeImageAlt = event.imageAlt?.trim() || event.title;
+    this.activeImageUrl = imageUrl;
+    this.activeImageAlt = this.eventImageAlt(event);
   }
 
   closeImage(): void {

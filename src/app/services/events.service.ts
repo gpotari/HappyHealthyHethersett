@@ -15,15 +15,15 @@ export class EventsService {
   }
 
   getSnapshot(): EventItem[] {
-    return this.eventsSubject.value.map((event) => ({ ...event }));
+    return this.eventsSubject.value.map((event) => this.cloneEvent(event));
   }
 
   setEvents(events: EventItem[]) {
-    const normalized = this.sortEvents(events);
+    const normalized = this.sortEvents(events.map((event) => this.cloneEvent(event)));
     return this.http
       .put<EventItem[]>(this.apiUrl, normalized, { withCredentials: true })
       .pipe(
-        map((saved) => this.sortEvents(saved)),
+        map((saved) => this.sortEvents(saved.map((event) => this.cloneEvent(event)))),
         tap((saved) => this.eventsSubject.next(saved))
       );
   }
@@ -36,9 +36,16 @@ export class EventsService {
     return this.http.get<EventItem[]>(this.apiUrl).pipe(
       catchError(() => this.http.get<EventItem[]>(this.fallbackUrl)),
       catchError(() => of([])),
-      map((events) => this.sortEvents(events)),
+      map((events) => this.sortEvents(events.map((event) => this.cloneEvent(event)))),
       tap((events) => this.eventsSubject.next(events))
     );
+  }
+
+  private cloneEvent(event: EventItem): EventItem {
+    return {
+      ...event,
+      photos: (event.photos || []).map((photo) => ({ ...photo }))
+    };
   }
 
   private sortEvents(events: EventItem[]): EventItem[] {

@@ -153,6 +153,15 @@
   padding: 0;
 }
 
+.admin__checkbox--field {
+  min-height: 44px;
+  align-self: end;
+  border: 1px solid rgba(23, 63, 45, 0.12);
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 0.58rem 0.72rem;
+}
+
 .admin-auth__submit {
   width: 100%;
   min-height: 52px;
@@ -464,6 +473,95 @@
   padding: 1rem;
 }
 
+.admin-feedback-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-feedback-card {
+  display: grid;
+  gap: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdfb 100%);
+  box-shadow: 0 12px 28px rgba(16, 45, 35, 0.07);
+  padding: 1rem 1.05rem;
+}
+
+.admin-feedback-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-feedback-card__header h4 {
+  margin: 0.18rem 0 0;
+  color: var(--green-850);
+  font-size: 1.28rem;
+  line-height: 1.12;
+}
+
+.admin-feedback-card__date {
+  margin: 0;
+  color: var(--clay);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-feedback-card__badge {
+  flex: 0 0 auto;
+  border: 1px solid rgba(79, 153, 104, 0.22);
+  border-radius: 999px;
+  background: var(--green-120);
+  color: var(--green-850);
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0.32rem 0.55rem;
+}
+
+.admin-feedback-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.admin-feedback-card__meta span::after {
+  content: "·";
+  margin-left: 0.75rem;
+  color: rgba(83, 101, 91, 0.55);
+}
+
+.admin-feedback-card__meta a {
+  color: var(--green-850);
+}
+
+.admin-feedback-card__message {
+  border-left: 4px solid var(--sun);
+  border-radius: 0 8px 8px 0;
+  background: rgba(242, 201, 76, 0.08);
+  color: var(--ink);
+  line-height: 1.55;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  white-space: pre-wrap;
+}
+
+.admin-feedback-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-feedback-card__actions .btn {
+  min-height: 34px;
+  padding: 0.42rem 0.7rem;
+  font-size: 0.88rem;
+}
+
 .admin__report-header {
   display: flex;
   align-items: flex-start;
@@ -558,6 +656,21 @@
   margin-bottom: 1rem;
 }
 
+.admin__grid--event-form {
+  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(140px, 0.72fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.admin__grid--event-form input[type="date"],
+.admin__grid--event-form input[type="time"] {
+  min-height: 44px;
+}
+
+.admin__field--span-2 {
+  grid-column: span 2;
+}
+
 .admin__grid--compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
@@ -575,9 +688,78 @@
   padding: 0.58rem 0.72rem;
 }
 
+.admin__grid--meeting-point {
+  grid-template-columns: minmax(260px, 1.35fr) minmax(260px, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.admin__grid--meeting-point input {
+  min-height: 44px;
+  padding: 0.58rem 0.72rem;
+}
+
+.admin__field--coordinates {
+  align-self: stretch;
+}
+
+.admin__coordinate-actions {
+  display: flex;
+  min-height: 44px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 0.45rem;
+}
+
+.admin__coordinate-actions span {
+  flex: 1 1 170px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+  padding: 0 0.25rem;
+}
+
+.admin__coordinate-actions .btn {
+  min-height: 34px;
+  padding: 0.42rem 0.62rem;
+}
+
+.admin__grid--litter-extra {
+  grid-template-columns: minmax(150px, 0.9fr) minmax(150px, 0.9fr) repeat(4, minmax(120px, 0.7fr));
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.admin__grid--litter-extra input,
+.admin__grid--litter-extra select {
+  min-height: 44px;
+  padding: 0.58rem 0.72rem;
+}
+
 .admin__field {
   display: grid;
   gap: 0.4rem;
+}
+
+.admin__field.has-error label {
+  color: #a33a2f;
+}
+
+.admin__field input.is-invalid,
+.admin__field textarea.is-invalid {
+  border-color: #c74636;
+  background: #fff8f6;
+  box-shadow: 0 0 0 4px rgba(199, 70, 54, 0.12);
+}
+
+.admin__field-error {
+  color: #a33a2f;
+  font-size: 0.82rem;
+  font-weight: 850;
 }
 
 .admin__optional {
@@ -595,6 +777,11 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+}
+
+.admin__image-actions > label:not(.admin__upload),
+.admin__image-actions .admin-photo-grid {
+  flex-basis: 100%;
 }
 
 .admin__image-button {
@@ -628,6 +815,12 @@
   margin-bottom: 1rem;
 }
 
+.admin__sheet-feedback {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
 .admin__sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -652,6 +845,10 @@
 
 .admin__sheet--wide {
   width: min(1180px, 97vw);
+}
+
+.admin__sheet--event {
+  width: min(1040px, 96vw);
 }
 
 .admin__sheet--litter-create {
@@ -1376,6 +1573,10 @@
     grid-template-columns: 1fr;
   }
 
+  .admin__grid--event-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin__toolbar {
     justify-content: flex-start;
   }
@@ -1425,7 +1626,23 @@
     grid-template-columns: 1fr;
   }
 
+  .admin__grid--event-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin__field--span-2 {
+    grid-column: auto;
+  }
+
   .admin__grid--litter-create {
+    grid-template-columns: 1fr;
+  }
+
+  .admin__grid--litter-extra {
+    grid-template-columns: 1fr;
+  }
+
+  .admin__grid--meeting-point {
     grid-template-columns: 1fr;
   }
 

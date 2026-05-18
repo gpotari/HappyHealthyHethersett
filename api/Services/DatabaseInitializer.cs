@@ -54,6 +54,57 @@ public static class DatabaseInitializer
             CREATE INDEX IF NOT EXISTS `IX_stored_photos_CreatedAt`
             ON `stored_photos` (`CreatedAt`);
             """);
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE `events`
+            ADD COLUMN IF NOT EXISTS `PublicId` varchar(80) CHARACTER SET utf8mb4 NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            UPDATE `events`
+            SET `PublicId` = CONCAT('event-', `Id`)
+            WHERE `PublicId` IS NULL OR `PublicId` = '';
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE `events`
+            MODIFY COLUMN `PublicId` varchar(80) CHARACTER SET utf8mb4 NOT NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE UNIQUE INDEX IF NOT EXISTS `IX_events_PublicId`
+            ON `events` (`PublicId`);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE `litter_pick_events`
+            ADD COLUMN IF NOT EXISTS `Description` varchar(1400) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `Capacity` int NULL,
+            ADD COLUMN IF NOT EXISTS `RegisteredCount` int NULL,
+            ADD COLUMN IF NOT EXISTS `WhatToBring` varchar(800) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `EquipmentProvided` varchar(800) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `Difficulty` varchar(40) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `FamilyFriendly` tinyint(1) NULL,
+            ADD COLUMN IF NOT EXISTS `AccessibilityNotes` varchar(1200) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `WeatherPlan` varchar(800) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `ContactName` varchar(160) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `ContactEmail` varchar(320) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `ContactPhone` varchar(80) CHARACTER SET utf8mb4 NULL,
+            ADD COLUMN IF NOT EXISTS `BagsGoal` int NULL,
+            ADD COLUMN IF NOT EXISTS `VolunteersGoal` int NULL;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS `feedback_messages` (
+                `Id` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+                `CreatedAt` datetime(6) NOT NULL,
+                `Name` varchar(160) CHARACTER SET utf8mb4 NOT NULL,
+                `Email` varchar(320) CHARACTER SET utf8mb4 NOT NULL,
+                `Subject` varchar(160) CHARACTER SET utf8mb4 NULL,
+                `Message` varchar(3000) CHARACTER SET utf8mb4 NOT NULL,
+                `IpAddress` varchar(80) CHARACTER SET utf8mb4 NULL,
+                `UserAgent` varchar(500) CHARACTER SET utf8mb4 NULL,
+                CONSTRAINT `PK_feedback_messages` PRIMARY KEY (`Id`)
+            ) CHARACTER SET=utf8mb4;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_feedback_messages_CreatedAt`
+            ON `feedback_messages` (`CreatedAt`);
+            """);
     }
 
     private static async Task SeedRolesAsync(AppDbContext db)

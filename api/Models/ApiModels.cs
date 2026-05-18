@@ -6,6 +6,48 @@ public record LoginRequest(string Email, string Password, bool RememberMe = fals
 
 public record RegisterRequest(string Email, string DisplayName, string Password);
 
+public class ContactMessageRequest
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = string.Empty;
+
+    [JsonPropertyName("subject")]
+    public string? Subject { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("photos")]
+    public List<PhotoDto> Photos { get; set; } = new();
+}
+
+public class FeedbackMessageDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = string.Empty;
+
+    [JsonPropertyName("subject")]
+    public string? Subject { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+
+    [JsonPropertyName("photos")]
+    public List<PhotoDto> Photos { get; set; } = new();
+}
+
 public record CurrentUserDto(Guid Id, string Email, string DisplayName, string[] Roles, string? AvatarDataUrl);
 
 public record LoginResponseDto(CurrentUserDto User, string Token, DateTimeOffset ExpiresAt);
@@ -39,6 +81,9 @@ public class PhotoDto
 
 public class EventDto
 {
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
     [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
 
@@ -74,6 +119,9 @@ public class EventDto
 
     [JsonPropertyName("imageAlt")]
     public string? ImageAlt { get; set; }
+
+    [JsonPropertyName("photos")]
+    public List<PhotoDto> Photos { get; set; } = new();
 }
 
 public class LitterReportDto
@@ -183,6 +231,9 @@ public class LitterPickEventDto
     [JsonPropertyName("end")]
     public string? End { get; set; }
 
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
     [JsonPropertyName("meetingPoint")]
     public string? MeetingPoint { get; set; }
 
@@ -191,6 +242,45 @@ public class LitterPickEventDto
 
     [JsonPropertyName("meetingPointLng")]
     public double? MeetingPointLng { get; set; }
+
+    [JsonPropertyName("capacity")]
+    public int? Capacity { get; set; }
+
+    [JsonPropertyName("registeredCount")]
+    public int? RegisteredCount { get; set; }
+
+    [JsonPropertyName("whatToBring")]
+    public string? WhatToBring { get; set; }
+
+    [JsonPropertyName("equipmentProvided")]
+    public string? EquipmentProvided { get; set; }
+
+    [JsonPropertyName("difficulty")]
+    public string? Difficulty { get; set; }
+
+    [JsonPropertyName("familyFriendly")]
+    public bool? FamilyFriendly { get; set; }
+
+    [JsonPropertyName("accessibilityNotes")]
+    public string? AccessibilityNotes { get; set; }
+
+    [JsonPropertyName("weatherPlan")]
+    public string? WeatherPlan { get; set; }
+
+    [JsonPropertyName("contactName")]
+    public string? ContactName { get; set; }
+
+    [JsonPropertyName("contactEmail")]
+    public string? ContactEmail { get; set; }
+
+    [JsonPropertyName("contactPhone")]
+    public string? ContactPhone { get; set; }
+
+    [JsonPropertyName("bagsGoal")]
+    public int? BagsGoal { get; set; }
+
+    [JsonPropertyName("volunteersGoal")]
+    public int? VolunteersGoal { get; set; }
 
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }

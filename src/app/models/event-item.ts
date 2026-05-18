@@ -1,4 +1,7 @@
+import { PhotoAttachment } from './photo-attachment';
+
 export interface EventItem {
+  id?: string;
   title: string;
   date: string;
   start: string;
@@ -11,4 +14,5 @@ export interface EventItem {
   phone?: string;
   imageUrl?: string;
   imageAlt?: string;
+  photos?: PhotoAttachment[];
 }

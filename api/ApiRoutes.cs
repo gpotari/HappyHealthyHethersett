@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.Json;
 using HappyHealthyHethersett.Api.Data;
@@ -14,6 +15,8 @@ namespace HappyHealthyHethersett.Api;
 public static class ApiRoutes
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string CommunityEventPhotoOwner = "CommunityEvent";
+    private const string FeedbackPhotoOwner = "FeedbackMessage";
     private const string LitterReportPhotoOwner = "LitterReport";
     private const string LitterPickEventPhotoOwner = "LitterPickEvent";
 
@@ -50,6 +53,38 @@ public static class ApiRoutes
             {
                 return Results.BadRequest(new { error = error.Message });
             }
+        }).AllowAnonymous();
+
+        app.MapPost("/api/contact", async (
+            ContactMessageRequest request,
+            AppDbContext db,
+            HttpContext httpContext) =>
+        {
+            var validationError = ValidateContactMessage(request);
+            if (validationError is not null)
+            {
+                return Results.BadRequest(new { error = validationError });
+            }
+
+            var message = new FeedbackMessageEntity
+            {
+                Id = $"feedback-{Guid.NewGuid():N}"[..38],
+                Name = Clean(request.Name, 160),
+                Email = Clean(request.Email, 320),
+                Subject = CleanOptional(request.Subject, 160),
+                Message = Clean(request.Message, 3000),
+                IpAddress = CleanOptional(httpContext.Connection.RemoteIpAddress?.ToString(), 80),
+                UserAgent = CleanOptional(httpContext.Request.Headers.UserAgent.ToString(), 500)
+            };
+
+            await db.FeedbackMessages.AddAsync(message);
+            await db.StoredPhotos.AddRangeAsync(ToPhotoEntities(FeedbackPhotoOwner, message.Id, request.Photos));
+            await db.SaveChangesAsync();
+            return Results.Created($"/api/feedback/{message.Id}", new
+            {
+                ok = true,
+                message = "Thanks, your message has been saved for the team."
+            });
         }).AllowAnonymous();
 
         app.MapPost("/api/auth/logout", async (HttpContext httpContext) =>
@@ -160,19 +195,32 @@ public static class ApiRoutes
             var events = await db.Events
                 .AsNoTracking()
                 .OrderBy(item => item.SortOrder)
-                .Select(item => ToEventDto(item))
                 .ToListAsync();
-            return Results.Ok(events);
+            var eventIds = events.Select(EventOwnerId).ToArray();
+            var photos = await db.StoredPhotos
+                .AsNoTracking()
+                .Where(photo => photo.OwnerType == CommunityEventPhotoOwner && eventIds.Contains(photo.OwnerId))
+                .OrderBy(photo => photo.CreatedAt)
+                .ToListAsync();
+            var photosByEvent = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
+            return Results.Ok(events.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>())));
         }).AllowAnonymous();
 
         app.MapPut("/api/events", async (List<EventDto> events, AppDbContext db) =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync();
             db.Events.RemoveRange(await db.Events.ToListAsync());
-            await db.Events.AddRangeAsync(events.Select((item, index) => ToEventEntity(item, index)));
+            db.StoredPhotos.RemoveRange(await db.StoredPhotos.Where(photo => photo.OwnerType == CommunityEventPhotoOwner).ToListAsync());
+            var eventEntities = events.Select((item, index) => ToEventEntity(item, index)).ToList();
+            var photoEntities = events
+                .SelectMany((item, index) => ToPhotoEntities(CommunityEventPhotoOwner, eventEntities[index].PublicId, item.Photos))
+                .ToList();
+            await db.Events.AddRangeAsync(eventEntities);
+            await db.StoredPhotos.AddRangeAsync(photoEntities);
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
-            return Results.Ok(events);
+            var photosByEvent = photoEntities.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
+            return Results.Ok(eventEntities.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(item.PublicId) ?? new List<StoredPhotoEntity>())));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
 
         app.MapPost("/api/litter-reports", async (LitterReportDto payload, AppDbContext db) =>
@@ -223,6 +271,38 @@ public static class ApiRoutes
             return Results.Ok(reports.Select(report => ToLitterReportDto(report, photosByReport.GetValueOrDefault(report.Id) ?? new List<StoredPhotoEntity>())));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
 
+        app.MapGet("/api/feedback", async (AppDbContext db) =>
+        {
+            var messages = await db.FeedbackMessages
+                .AsNoTracking()
+                .OrderByDescending(message => message.CreatedAt)
+                .ToListAsync();
+            var messageIds = messages.Select(message => message.Id).ToArray();
+            var photos = await db.StoredPhotos
+                .AsNoTracking()
+                .Where(photo => photo.OwnerType == FeedbackPhotoOwner && messageIds.Contains(photo.OwnerId))
+                .OrderBy(photo => photo.CreatedAt)
+                .ToListAsync();
+            var photosByMessage = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
+            return Results.Ok(messages.Select(message => ToFeedbackMessageDto(message, photosByMessage.GetValueOrDefault(message.Id) ?? new List<StoredPhotoEntity>())));
+        }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
+
+        app.MapDelete("/api/feedback/{id}", async (string id, AppDbContext db) =>
+        {
+            var message = await db.FeedbackMessages.SingleOrDefaultAsync(item => item.Id == id);
+            if (message is null)
+            {
+                return Results.NotFound();
+            }
+
+            db.FeedbackMessages.Remove(message);
+            db.StoredPhotos.RemoveRange(await db.StoredPhotos
+                .Where(photo => photo.OwnerType == FeedbackPhotoOwner && photo.OwnerId == message.Id)
+                .ToListAsync());
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
+
         app.MapGet("/api/litter-pick-events", async (AppDbContext db) =>
         {
             var events = await db.LitterPickEvents
@@ -240,6 +320,24 @@ public static class ApiRoutes
             return Results.Ok(events.Select(item => ToLitterPickEventDto(item, photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>())));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
 
+        app.MapGet("/api/public/litter-pick-events", async (AppDbContext db) =>
+        {
+            var events = await db.LitterPickEvents
+                .AsNoTracking()
+                .Where(item => item.Status == "open")
+                .OrderBy(item => item.Date)
+                .ThenBy(item => item.Start)
+                .ToListAsync();
+            var eventIds = events.Select(item => item.Id).ToArray();
+            var photos = await db.StoredPhotos
+                .AsNoTracking()
+                .Where(photo => photo.OwnerType == LitterPickEventPhotoOwner && eventIds.Contains(photo.OwnerId))
+                .OrderBy(photo => photo.CreatedAt)
+                .ToListAsync();
+            var photosByEvent = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
+            return Results.Ok(events.Select(item => ToLitterPickEventDto(item, photosByEvent.GetValueOrDefault(item.Id) ?? new List<StoredPhotoEntity>())));
+        }).AllowAnonymous();
+
         app.MapPut("/api/litter-pick-events", async (List<LitterPickEventDto> events, AppDbContext db) =>
         {
             await using var transaction = await db.Database.BeginTransactionAsync();
@@ -247,9 +345,9 @@ public static class ApiRoutes
             db.StoredPhotos.RemoveRange(await db.StoredPhotos.Where(photo => photo.OwnerType == LitterPickEventPhotoOwner).ToListAsync());
             var eventEntities = events.Select(ToLitterPickEventEntity).ToList();
             await db.LitterPickEvents.AddRangeAsync(eventEntities);
-            await db.StoredPhotos.AddRangeAsync(events.SelectMany(item =>
+            await db.StoredPhotos.AddRangeAsync(events.SelectMany((item, index) =>
             {
-                var ownerId = string.IsNullOrWhiteSpace(item.Id) ? eventEntities.First(entity => entity.Title == item.Title && entity.Date == item.Date).Id : item.Id;
+                var ownerId = string.IsNullOrWhiteSpace(item.Id) ? eventEntities[index].Id : item.Id;
                 return ToPhotoEntities(LitterPickEventPhotoOwner, ownerId, item.Photos);
             }));
             await db.SaveChangesAsync();
@@ -264,6 +362,44 @@ public static class ApiRoutes
         return Guid.TryParse(currentIdText, out var currentId)
             && currentId == id
             && (request.IsDisabled || request.Roles?.Contains(AppRoles.Admin) != true);
+    }
+
+    private static string? ValidateContactMessage(ContactMessageRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return "Please enter your name.";
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email) || !IsValidEmail(request.Email))
+        {
+            return "Please enter a valid email address.";
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Message))
+        {
+            return "Please enter a message.";
+        }
+
+        if (request.Name.Length > 160 || request.Email.Length > 320 || request.Message.Length > 3000 || (request.Subject?.Length ?? 0) > 160)
+        {
+            return "Please shorten your message before submitting.";
+        }
+
+        return null;
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        try
+        {
+            var address = new MailAddress(email.Trim());
+            return address.Address.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static Guid? CurrentUserId(ClaimsPrincipal currentUser)
@@ -287,10 +423,11 @@ public static class ApiRoutes
             .SingleOrDefaultAsync(user => user.Id == currentId && !user.IsDisabled);
     }
 
-    private static EventDto ToEventDto(CommunityEvent item)
+    private static EventDto ToEventDto(CommunityEvent item, List<StoredPhotoEntity> photos)
     {
         return new EventDto
         {
+            Id = EventOwnerId(item),
             Title = item.Title,
             Date = item.Date,
             Start = item.Start,
@@ -302,7 +439,8 @@ public static class ApiRoutes
             Note = item.Note,
             Phone = item.Phone,
             ImageUrl = item.ImageUrl,
-            ImageAlt = item.ImageAlt
+            ImageAlt = item.ImageAlt,
+            Photos = photos.Select(ToPhotoDto).ToList()
         };
     }
 
@@ -310,6 +448,7 @@ public static class ApiRoutes
     {
         return new CommunityEvent
         {
+            PublicId = CleanOptional(item.Id, 80) ?? $"event-{Guid.NewGuid():N}"[..38],
             SortOrder = index,
             Title = Clean(item.Title, 220),
             Date = Clean(item.Date, 40),
@@ -326,6 +465,11 @@ public static class ApiRoutes
         };
     }
 
+    private static string EventOwnerId(CommunityEvent item)
+    {
+        return string.IsNullOrWhiteSpace(item.PublicId) ? $"event-{item.Id}" : item.PublicId;
+    }
+
     private static LitterReportDto ToLitterReportDto(LitterReportEntity report, List<StoredPhotoEntity> photos)
     {
         return new LitterReportDto
@@ -339,6 +483,20 @@ public static class ApiRoutes
             Comment = report.Comment,
             Contact = report.Contact,
             MapLink = report.MapLink,
+            Photos = photos.Select(ToPhotoDto).ToList()
+        };
+    }
+
+    private static FeedbackMessageDto ToFeedbackMessageDto(FeedbackMessageEntity message, List<StoredPhotoEntity> photos)
+    {
+        return new FeedbackMessageDto
+        {
+            Id = message.Id,
+            CreatedAt = message.CreatedAt,
+            Name = message.Name,
+            Email = message.Email,
+            Subject = message.Subject,
+            Message = message.Message,
             Photos = photos.Select(ToPhotoDto).ToList()
         };
     }
@@ -386,9 +544,23 @@ public static class ApiRoutes
             Date = item.Date,
             Start = item.Start,
             End = item.End,
+            Description = item.Description,
             MeetingPoint = item.MeetingPoint,
             MeetingPointLat = item.MeetingPointLat,
             MeetingPointLng = item.MeetingPointLng,
+            Capacity = item.Capacity,
+            RegisteredCount = item.RegisteredCount,
+            WhatToBring = item.WhatToBring,
+            EquipmentProvided = item.EquipmentProvided,
+            Difficulty = item.Difficulty,
+            FamilyFriendly = item.FamilyFriendly,
+            AccessibilityNotes = item.AccessibilityNotes,
+            WeatherPlan = item.WeatherPlan,
+            ContactName = item.ContactName,
+            ContactEmail = ContactEmailFor(item.ContactEmail, item.ContactPhone),
+            ContactPhone = item.ContactPhone,
+            BagsGoal = item.BagsGoal,
+            VolunteersGoal = item.VolunteersGoal,
             Notes = item.Notes,
             Status = item.Status,
             Areas = DeserializeAreas(item.AreasJson),
@@ -404,19 +576,41 @@ public static class ApiRoutes
         return new LitterPickEventEntity
         {
             Id = string.IsNullOrWhiteSpace(item.Id) ? $"litter-pick-{Guid.NewGuid():N}"[..24] : Clean(item.Id, 80),
-            Title = Clean(item.Title, 220),
+            Title = CleanOptional(item.Title, 220) ?? DefaultLitterPickTitle(item.Date),
             Date = Clean(item.Date, 40),
             Start = CleanOptional(item.Start, 40),
             End = CleanOptional(item.End, 40),
+            Description = CleanOptional(item.Description, 1400),
             MeetingPoint = CleanOptional(item.MeetingPoint, 220),
             MeetingPointLat = item.MeetingPointLat,
             MeetingPointLng = item.MeetingPointLng,
+            Capacity = NonNegativeOrNull(item.Capacity),
+            RegisteredCount = NonNegativeOrNull(item.RegisteredCount),
+            WhatToBring = CleanOptional(item.WhatToBring, 800),
+            EquipmentProvided = CleanOptional(item.EquipmentProvided, 800),
+            Difficulty = CleanOptional(item.Difficulty, 40),
+            FamilyFriendly = item.FamilyFriendly,
+            AccessibilityNotes = CleanOptional(item.AccessibilityNotes, 1200),
+            WeatherPlan = CleanOptional(item.WeatherPlan, 800),
+            ContactName = CleanOptional(item.ContactName, 160),
+            ContactEmail = CleanOptional(ContactEmailFor(item.ContactEmail, item.ContactPhone), 320),
+            ContactPhone = CleanOptional(item.ContactPhone, 80),
+            BagsGoal = NonNegativeOrNull(item.BagsGoal),
+            VolunteersGoal = NonNegativeOrNull(item.VolunteersGoal),
             Notes = CleanOptional(item.Notes, 5000),
             Status = item.Status == "closed" ? "closed" : "open",
             AreasJson = JsonSerializer.Serialize(item.Areas ?? new List<LitterPickAreaDto>(), JsonOptions),
             CreatedAt = item.CreatedAt ?? now,
             UpdatedAt = now
         };
+    }
+
+    private static string DefaultLitterPickTitle(string? date)
+    {
+        var cleanedDate = CleanOptional(date, 40);
+        return string.IsNullOrWhiteSpace(cleanedDate)
+            ? "Community litter pick"
+            : $"Community litter pick - {cleanedDate}";
     }
 
     private static PhotoDto ToPhotoDto(StoredPhotoEntity photo)
@@ -508,5 +702,22 @@ public static class ApiRoutes
     {
         var cleaned = Clean(value, maxLength);
         return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
+    }
+
+    private static string? ContactEmailFor(string? contactEmail, string? legacyContactPhone)
+    {
+        var email = CleanOptional(contactEmail, 320);
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            return email;
+        }
+
+        var legacy = CleanOptional(legacyContactPhone, 320);
+        return legacy is not null && legacy.Contains('@', StringComparison.Ordinal) ? legacy : null;
+    }
+
+    private static int? NonNegativeOrNull(int? value)
+    {
+        return value.HasValue ? Math.Max(0, value.Value) : null;
     }
 }

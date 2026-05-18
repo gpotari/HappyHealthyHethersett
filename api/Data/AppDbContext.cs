@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<LitterReportEntity> LitterReports => Set<LitterReportEntity>();
     public DbSet<LitterPickEventEntity> LitterPickEvents => Set<LitterPickEventEntity>();
     public DbSet<StoredPhotoEntity> StoredPhotos => Set<StoredPhotoEntity>();
+    public DbSet<FeedbackMessageEntity> FeedbackMessages => Set<FeedbackMessageEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +60,7 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("events");
             entity.HasKey(item => item.Id);
+            entity.Property(item => item.PublicId).HasMaxLength(80).IsRequired();
             entity.Property(item => item.Title).HasMaxLength(220).IsRequired();
             entity.Property(item => item.Date).HasMaxLength(40).IsRequired();
             entity.Property(item => item.Start).HasMaxLength(40).IsRequired();
@@ -71,6 +73,7 @@ public class AppDbContext : DbContext
             entity.Property(item => item.Phone).HasMaxLength(80);
             entity.Property(item => item.ImageUrl).HasColumnType("longtext");
             entity.Property(item => item.ImageAlt).HasMaxLength(260);
+            entity.HasIndex(item => item.PublicId).IsUnique();
             entity.HasIndex(item => item.SortOrder);
         });
 
@@ -96,7 +99,16 @@ public class AppDbContext : DbContext
             entity.Property(item => item.Date).HasMaxLength(40).IsRequired();
             entity.Property(item => item.Start).HasMaxLength(40);
             entity.Property(item => item.End).HasMaxLength(40);
+            entity.Property(item => item.Description).HasMaxLength(1400);
             entity.Property(item => item.MeetingPoint).HasMaxLength(220);
+            entity.Property(item => item.WhatToBring).HasMaxLength(800);
+            entity.Property(item => item.EquipmentProvided).HasMaxLength(800);
+            entity.Property(item => item.Difficulty).HasMaxLength(40);
+            entity.Property(item => item.AccessibilityNotes).HasMaxLength(1200);
+            entity.Property(item => item.WeatherPlan).HasMaxLength(800);
+            entity.Property(item => item.ContactName).HasMaxLength(160);
+            entity.Property(item => item.ContactEmail).HasMaxLength(320);
+            entity.Property(item => item.ContactPhone).HasMaxLength(80);
             entity.Property(item => item.Notes).HasColumnType("text");
             entity.Property(item => item.Status).HasMaxLength(24).IsRequired();
             entity.Property(item => item.AreasJson).HasColumnType("longtext").IsRequired();
@@ -116,6 +128,20 @@ public class AppDbContext : DbContext
             entity.Property(photo => photo.Data).HasColumnType("longblob").IsRequired();
             entity.HasIndex(photo => new { photo.OwnerType, photo.OwnerId });
             entity.HasIndex(photo => photo.CreatedAt);
+        });
+
+        modelBuilder.Entity<FeedbackMessageEntity>(entity =>
+        {
+            entity.ToTable("feedback_messages");
+            entity.HasKey(message => message.Id);
+            entity.Property(message => message.Id).HasMaxLength(80);
+            entity.Property(message => message.Name).HasMaxLength(160).IsRequired();
+            entity.Property(message => message.Email).HasMaxLength(320).IsRequired();
+            entity.Property(message => message.Subject).HasMaxLength(160);
+            entity.Property(message => message.Message).HasMaxLength(3000).IsRequired();
+            entity.Property(message => message.IpAddress).HasMaxLength(80);
+            entity.Property(message => message.UserAgent).HasMaxLength(500);
+            entity.HasIndex(message => message.CreatedAt);
         });
     }
 }

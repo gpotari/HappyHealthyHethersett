@@ -11,3 +11,11 @@ server/data/litter-reports.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local secrets and deployment overrides
+.env
+.env.*
+!.env.example
+*.local.env
+scripts/*.env
+!scripts/*.env.example
