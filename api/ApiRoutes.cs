@@ -156,6 +156,23 @@ public static class ApiRoutes
             return Results.Ok(new PushNotificationConfigDto(pushNotifications.IsConfigured, pushNotifications.PublicKey));
         }).AllowAnonymous();
 
+        app.MapGet("/api/weather/forecast", async (
+            HttpContext httpContext,
+            WeatherForecastService weatherForecasts,
+            CancellationToken cancellationToken) =>
+        {
+            var date = CleanOptional(httpContext.Request.Query["date"].ToString(), 40);
+            if (date is null)
+            {
+                return Results.BadRequest(new { error = "Forecast date is required." });
+            }
+
+            var time = CleanOptional(httpContext.Request.Query["time"].ToString(), 40);
+            var latitude = QueryDouble(httpContext, "lat");
+            var longitude = QueryDouble(httpContext, "lng");
+            return Results.Ok(await weatherForecasts.GetForecastAsync(date, time, latitude, longitude, cancellationToken));
+        }).AllowAnonymous();
+
         app.MapGet("/api/street-search", SearchStreetAsync).RequireAuthorization();
 
         app.MapPost("/api/notifications/subscriptions", async (
@@ -1448,6 +1465,14 @@ public static class ApiRoutes
     {
         var cleaned = Clean(value, maxLength);
         return string.IsNullOrWhiteSpace(cleaned) ? null : cleaned;
+    }
+
+    private static double? QueryDouble(HttpContext httpContext, string name)
+    {
+        var value = httpContext.Request.Query[name].ToString();
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
     }
 
     private static string? ContactEmailFor(string? contactEmail, string? legacyContactPhone)

@@ -54,6 +54,28 @@
               </div>
             </dl>
 
+            <div
+              class="weather-forecast"
+              *ngIf="weatherForecast(event) as forecast"
+              [class.weather-forecast--muted]="!forecast.available"
+              [attr.aria-label]="weatherAriaLabel(forecast)"
+            >
+              <span class="weather-forecast__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M8 17h9a4 4 0 0 0 .4-8 5.8 5.8 0 0 0-10.8 1.8A3.2 3.2 0 0 0 8 17Z" />
+                  <path d="M5 8V5" />
+                  <path d="M3.2 9.8 1 7.6" />
+                  <path d="M5 21v-1.8" />
+                  <path d="M11 21v-1.8" />
+                  <path d="M17 21v-1.8" />
+                </svg>
+              </span>
+              <span class="weather-forecast__body">
+                <strong>{{ forecast.summary }}</strong>
+                <span>{{ weatherMeta(forecast) }}</span>
+              </span>
+            </div>
+
             <p class="event-card__description">{{ event.description }}</p>
 
             <p class="event-card__note" *ngIf="event.note">

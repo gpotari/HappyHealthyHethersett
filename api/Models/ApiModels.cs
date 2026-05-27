@@ -82,6 +82,42 @@ public record LitterPickAttendanceListResponse(string[] EventIds);
 
 public record PushNotificationConfigDto(bool Enabled, string? PublicKey);
 
+public class WeatherForecastDto
+{
+    [JsonPropertyName("available")]
+    public bool Available { get; set; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "unavailable";
+
+    [JsonPropertyName("summary")]
+    public string Summary { get; set; } = "Forecast unavailable";
+
+    [JsonPropertyName("date")]
+    public string? Date { get; set; }
+
+    [JsonPropertyName("time")]
+    public string? Time { get; set; }
+
+    [JsonPropertyName("temperatureC")]
+    public double? TemperatureC { get; set; }
+
+    [JsonPropertyName("precipitationProbability")]
+    public int? PrecipitationProbability { get; set; }
+
+    [JsonPropertyName("windSpeedMph")]
+    public double? WindSpeedMph { get; set; }
+
+    [JsonPropertyName("windGustMph")]
+    public double? WindGustMph { get; set; }
+
+    [JsonPropertyName("weatherCode")]
+    public int? WeatherCode { get; set; }
+
+    [JsonPropertyName("attribution")]
+    public string Attribution { get; set; } = "Open-Meteo";
+}
+
 public record PushNotificationTestRequest(string? Endpoint, string? TestId);
 
 public record PushNotificationTestResponse(bool Ok, int Sent);

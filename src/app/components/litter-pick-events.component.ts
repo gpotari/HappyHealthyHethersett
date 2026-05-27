@@ -4,9 +4,11 @@ import { catchError, of, Subscription } from 'rxjs';
 import { LitterPickArea, LitterPickEvent } from '../models/litter-pick-event';
 import { PhotoAttachment } from '../models/photo-attachment';
 import { CurrentUser } from '../models/user';
+import { WeatherForecast } from '../models/weather-forecast';
 import { AuthService } from '../services/auth.service';
 import { LitterPickEventsService } from '../services/litter-pick-events.service';
 import { PushNotificationsService, PushReminderResultReason } from '../services/push-notifications.service';
+import { WeatherForecastService } from '../services/weather-forecast.service';
 import { HETHERSETT_BOUNDARY, HETHERSETT_MAP_BOUNDS, MapPoint } from '../data/hethersett-boundary';
 
 type NotificationTestState = 'idle' | 'sending' | 'sent' | 'failed';
@@ -28,16 +30,19 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
   attendanceUpdating: Record<string, boolean> = {};
   notificationTestState: Record<string, NotificationTestState> = {};
   notificationTestMessage: Record<string, string> = {};
+  weatherForecasts: Record<string, WeatherForecast> = {};
   activeHistoryPopover = '';
   activeGalleryEvent: LitterPickEvent | null = null;
   activeGalleryIndex = 0;
   completedLitterPickIndex = 0;
+  private requestedWeatherKeys = new Set<string>();
   private userSubscription?: Subscription;
 
   constructor(
     private authService: AuthService,
     private litterPickEventsService: LitterPickEventsService,
-    private pushNotificationsService: PushNotificationsService
+    private pushNotificationsService: PushNotificationsService,
+    private weatherForecastService: WeatherForecastService
   ) {}
 
   ngOnInit(): void {
@@ -64,6 +69,7 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
       .subscribe((events) => {
         this.litterPicks = this.publicLitterPickEvents(events);
         this.normalizeCompletedStackIndex();
+        this.loadWeatherForecasts(this.upcomingLitterPicks);
         this.loading = false;
         if (this.currentUser) {
           this.loadAttendanceState();
@@ -289,6 +295,30 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
     return meetingPoint.toLowerCase() === 'selected meeting point'
       ? this.defaultMeetingPointLabel
       : meetingPoint;
+  }
+
+  weatherForecast(event: LitterPickEvent): WeatherForecast | null {
+    const key = this.weatherKey(event);
+    return key ? this.weatherForecasts[key] || null : null;
+  }
+
+  weatherMeta(forecast: WeatherForecast): string {
+    if (!forecast.available) {
+      return forecast.attribution || 'Open-Meteo';
+    }
+
+    const parts = [
+      this.hasWeatherNumber(forecast.temperatureC) ? `${forecast.temperatureC}°C` : '',
+      this.hasWeatherNumber(forecast.precipitationProbability) ? `${forecast.precipitationProbability}% rain` : '',
+      this.hasWeatherNumber(forecast.windSpeedMph) ? `${forecast.windSpeedMph} mph wind` : ''
+    ].filter(Boolean);
+    return parts.join(' · ') || forecast.attribution || 'Open-Meteo';
+  }
+
+  weatherAriaLabel(forecast: WeatherForecast): string {
+    return forecast.available
+      ? `Weather forecast: ${forecast.summary}, ${this.weatherMeta(forecast)}`
+      : forecast.summary;
   }
 
   primaryPhoto(event: LitterPickEvent): string {
@@ -627,6 +657,40 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
     });
   }
 
+  private loadWeatherForecasts(events: LitterPickEvent[]): void {
+    events.forEach((event) => {
+      const key = this.weatherKey(event);
+      if (!key || this.requestedWeatherKeys.has(key) || !event.date) {
+        return;
+      }
+
+      const hasCoordinates = Number.isFinite(Number(event.meetingPointLat)) && Number.isFinite(Number(event.meetingPointLng));
+      this.requestedWeatherKeys.add(key);
+      this.weatherForecastService
+        .getForecast({
+          date: event.date,
+          time: event.start,
+          lat: hasCoordinates ? Number(event.meetingPointLat) : undefined,
+          lng: hasCoordinates ? Number(event.meetingPointLng) : undefined
+        })
+        .subscribe((forecast) => {
+          this.weatherForecasts = { ...this.weatherForecasts, [key]: forecast };
+        });
+    });
+  }
+
+  private weatherKey(event: LitterPickEvent): string {
+    return [
+      event.id,
+      event.date,
+      event.start,
+      Number.isFinite(Number(event.meetingPointLat)) ? Number(event.meetingPointLat).toFixed(5) : '',
+      Number.isFinite(Number(event.meetingPointLng)) ? Number(event.meetingPointLng).toFixed(5) : ''
+    ]
+      .filter(Boolean)
+      .join('|');
+  }
+
   private notificationFailureMessage(reason?: PushReminderResultReason): string {
     if (reason === 'unsupported') {
       return 'This browser does not support web push notifications.';
@@ -737,6 +801,10 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
   private safeNumber(value?: number): number {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+  }
+
+  private hasWeatherNumber(value: number | null | undefined): boolean {
+    return Number.isFinite(Number(value));
   }
 
   private plural(value: number, singular: string): string {

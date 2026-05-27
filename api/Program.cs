@@ -20,6 +20,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton<BearerTokenService>();
 builder.Services.AddSingleton<PushNotificationService>();
+builder.Services.AddSingleton<WeatherForecastService>();
 builder.Services.AddHostedService<LitterPickReminderService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>

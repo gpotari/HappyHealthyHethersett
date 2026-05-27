@@ -3,8 +3,10 @@ import { AsyncPipe, NgFor, NgIf } from '@angular/common';
 import { map, Subscription } from 'rxjs';
 import { EventItem } from '../models/event-item';
 import { CurrentUser } from '../models/user';
+import { WeatherForecast } from '../models/weather-forecast';
 import { AuthService } from '../services/auth.service';
 import { EventsService } from '../services/events.service';
+import { WeatherForecastService } from '../services/weather-forecast.service';
 
 @Component({
   selector: 'app-events',
@@ -18,18 +20,23 @@ export class EventsComponent implements OnInit, OnDestroy {
   );
   currentUser: CurrentUser | null = null;
   attendanceUpdating: Record<string, boolean> = {};
+  weatherForecasts: Record<string, WeatherForecast> = {};
   activeImageUrl = '';
   activeImageAlt = '';
   activeHistoryPopover = '';
   private attendingEventIds = new Set<string>();
+  private requestedWeatherKeys = new Set<string>();
   private userSubscription?: Subscription;
+  private eventsSubscription?: Subscription;
 
   constructor(
     private authService: AuthService,
-    private eventsService: EventsService
+    private eventsService: EventsService,
+    private weatherForecastService: WeatherForecastService
   ) {}
 
   ngOnInit(): void {
+    this.eventsSubscription = this.events$.subscribe((events) => this.loadWeatherForecasts(events));
     this.userSubscription = this.authService.user$.subscribe((user) => {
       const previousUserId = this.currentUser?.id || null;
       this.currentUser = user;
@@ -44,6 +51,7 @@ export class EventsComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.eventsSubscription?.unsubscribe();
     this.userSubscription?.unsubscribe();
   }
 
@@ -139,6 +147,30 @@ export class EventsComponent implements OnInit, OnDestroy {
 
   eventImageAlt(event: EventItem): string {
     return event.photos?.[0]?.fileName || event.imageAlt?.trim() || event.title;
+  }
+
+  weatherForecast(event: EventItem): WeatherForecast | null {
+    const key = this.weatherKey(event);
+    return key ? this.weatherForecasts[key] || null : null;
+  }
+
+  weatherMeta(forecast: WeatherForecast): string {
+    if (!forecast.available) {
+      return forecast.attribution || 'Open-Meteo';
+    }
+
+    const parts = [
+      this.hasWeatherNumber(forecast.temperatureC) ? `${forecast.temperatureC}°C` : '',
+      this.hasWeatherNumber(forecast.precipitationProbability) ? `${forecast.precipitationProbability}% rain` : '',
+      this.hasWeatherNumber(forecast.windSpeedMph) ? `${forecast.windSpeedMph} mph wind` : ''
+    ].filter(Boolean);
+    return parts.join(' · ') || forecast.attribution || 'Open-Meteo';
+  }
+
+  weatherAriaLabel(forecast: WeatherForecast): string {
+    return forecast.available
+      ? `Weather forecast: ${forecast.summary}, ${this.weatherMeta(forecast)}`
+      : forecast.summary;
   }
 
   creatorName(event: EventItem): string {
@@ -398,5 +430,32 @@ export class EventsComponent implements OnInit, OnDestroy {
         this.attendingEventIds = new Set<string>();
       }
     });
+  }
+
+  private loadWeatherForecasts(events: EventItem[]): void {
+    events.forEach((event) => {
+      const key = this.weatherKey(event);
+      if (!key || this.requestedWeatherKeys.has(key) || !event.date) {
+        return;
+      }
+
+      this.requestedWeatherKeys.add(key);
+      this.weatherForecastService
+        .getForecast({
+          date: event.date,
+          time: event.start
+        })
+        .subscribe((forecast) => {
+          this.weatherForecasts = { ...this.weatherForecasts, [key]: forecast };
+        });
+    });
+  }
+
+  private weatherKey(event: EventItem): string {
+    return [event.id?.trim() || event.title, event.date, event.start].filter(Boolean).join('|');
+  }
+
+  private hasWeatherNumber(value: number | null | undefined): boolean {
+    return Number.isFinite(Number(value));
   }
 }
