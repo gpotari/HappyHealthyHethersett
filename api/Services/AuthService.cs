@@ -75,9 +75,9 @@ public class AuthService
         return await CreateUserAsync(request.Email, request.DisplayName, request.Password, request.Roles, false);
     }
 
-    public async Task<AppUser> RegisterPendingUserAsync(RegisterRequest request)
+    public async Task<AppUser> RegisterUserAsync(RegisterRequest request)
     {
-        return await CreateUserAsync(request.Email, request.DisplayName, request.Password, new[] { AppRoles.Editor }, true);
+        return await CreateUserAsync(request.Email, request.DisplayName, request.Password, new[] { AppRoles.User }, false);
     }
 
     private async Task<AppUser> CreateUserAsync(
@@ -129,6 +129,71 @@ public class AuthService
         await ApplyRolesAsync(user, request.Roles);
         await _db.SaveChangesAsync();
         return user;
+    }
+
+    public async Task<bool> DeleteUserAsync(Guid id)
+    {
+        var user = await _db.Users.SingleOrDefaultAsync(item => item.Id == id);
+        if (user is null)
+        {
+            return false;
+        }
+
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        var attendedEventIds = await _db.LitterPickAttendances
+            .Where(item => item.UserId == id)
+            .Select(item => item.LitterPickEventId)
+            .Distinct()
+            .ToArrayAsync();
+
+        _db.UserRoles.RemoveRange(await _db.UserRoles.Where(item => item.UserId == id).ToListAsync());
+        _db.LitterPickAttendances.RemoveRange(await _db.LitterPickAttendances.Where(item => item.UserId == id).ToListAsync());
+        _db.LitterPickReminderDeliveries.RemoveRange(await _db.LitterPickReminderDeliveries.Where(item => item.UserId == id).ToListAsync());
+        _db.PushNotificationSubscriptions.RemoveRange(await _db.PushNotificationSubscriptions.Where(item => item.UserId == id).ToListAsync());
+
+        var communityEvents = await _db.Events
+            .Where(item => item.CreatedByUserId == id || item.UpdatedByUserId == id)
+            .ToListAsync();
+        foreach (var communityEvent in communityEvents)
+        {
+            if (communityEvent.CreatedByUserId == id)
+            {
+                communityEvent.CreatedByUserId = null;
+            }
+
+            if (communityEvent.UpdatedByUserId == id)
+            {
+                communityEvent.UpdatedByUserId = null;
+            }
+        }
+
+        var litterPickEvents = await _db.LitterPickEvents
+            .Where(item => item.CreatedByUserId == id || item.UpdatedByUserId == id || attendedEventIds.Contains(item.Id))
+            .ToListAsync();
+        foreach (var litterPickEvent in litterPickEvents)
+        {
+            if (litterPickEvent.CreatedByUserId == id)
+            {
+                litterPickEvent.CreatedByUserId = null;
+            }
+
+            if (litterPickEvent.UpdatedByUserId == id)
+            {
+                litterPickEvent.UpdatedByUserId = null;
+            }
+        }
+
+        _db.Users.Remove(user);
+        await _db.SaveChangesAsync();
+
+        foreach (var litterPickEvent in litterPickEvents.Where(item => attendedEventIds.Contains(item.Id)))
+        {
+            litterPickEvent.RegisteredCount = await _db.LitterPickAttendances.CountAsync(item => item.LitterPickEventId == litterPickEvent.Id);
+        }
+
+        await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
+        return true;
     }
 
     public async Task<AppUser?> UpdateAccountAsync(Guid id, UpdateAccountRequest request)
@@ -229,14 +294,14 @@ public class AuthService
 
     private async Task ApplyRolesAsync(AppUser user, string[]? requestedRoles)
     {
-        var names = (requestedRoles is { Length: > 0 } ? requestedRoles : new[] { AppRoles.Editor })
+        var names = (requestedRoles is { Length: > 0 } ? requestedRoles : new[] { AppRoles.User })
             .Select(role => Clean(role, 80))
-            .Where(role => role == AppRoles.Admin || role == AppRoles.Editor)
+            .Where(role => role == AppRoles.Admin || role == AppRoles.Editor || role == AppRoles.User)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (names.Length == 0)
         {
-            names = new[] { AppRoles.Editor };
+            names = new[] { AppRoles.User };
         }
 
         user.UserRoles.Clear();
@@ -286,7 +351,7 @@ public class AuthService
         user.AvatarData = null;
     }
 
-    private static string? AvatarDataUrl(AppUser user)
+    public static string? AvatarDataUrl(AppUser user)
     {
         if (user.AvatarData is null || user.AvatarData.Length == 0 || string.IsNullOrWhiteSpace(user.AvatarContentType))
         {

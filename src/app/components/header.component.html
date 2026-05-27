@@ -99,7 +99,7 @@
 
           <div class="account-actions" *ngIf="accountView === 'menu'">
             <button class="account-menu__item" type="button" (click)="openManageAccount()">Manage account</button>
-            <button class="account-menu__item" type="button" (click)="goToAdmin()" *ngIf="hasAdminRole">Admin panel</button>
+            <button class="account-menu__item" type="button" (click)="goToAdmin()" *ngIf="canOpenAdminPanel">Admin panel</button>
             <button class="account-menu__item account-menu__item--danger" type="button" (click)="logout()">Sign out</button>
           </div>
 

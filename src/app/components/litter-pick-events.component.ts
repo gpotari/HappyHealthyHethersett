@@ -1,10 +1,14 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { catchError, of, Subscription } from 'rxjs';
 import { LitterPickEvent } from '../models/litter-pick-event';
+import { PhotoAttachment } from '../models/photo-attachment';
 import { CurrentUser } from '../models/user';
 import { AuthService } from '../services/auth.service';
 import { LitterPickEventsService } from '../services/litter-pick-events.service';
+import { PushNotificationsService, PushReminderResultReason } from '../services/push-notifications.service';
+
+type NotificationTestState = 'idle' | 'sending' | 'sent' | 'failed';
 
 @Component({
   selector: 'app-litter-pick-events',
@@ -19,14 +23,21 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
   loading = true;
   error = '';
   attendanceUpdating: Record<string, boolean> = {};
+  notificationTestState: Record<string, NotificationTestState> = {};
+  notificationTestMessage: Record<string, string> = {};
+  activeHistoryPopover = '';
+  activeGalleryEvent: LitterPickEvent | null = null;
+  activeGalleryIndex = 0;
   private userSubscription?: Subscription;
 
   constructor(
     private authService: AuthService,
-    private litterPickEventsService: LitterPickEventsService
+    private litterPickEventsService: LitterPickEventsService,
+    private pushNotificationsService: PushNotificationsService
   ) {}
 
   ngOnInit(): void {
+    this.pushNotificationsService.loadConfig().subscribe();
     this.userSubscription = this.authService.user$.subscribe((user) => {
       const previousUserId = this.currentUser?.id || null;
       this.currentUser = user;
@@ -57,6 +68,21 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.userSubscription?.unsubscribe();
+  }
+
+  @HostListener('document:click')
+  closeHistoryPopover(): void {
+    this.activeHistoryPopover = '';
+  }
+
+  @HostListener('document:keydown.escape')
+  closeTopLayer(): void {
+    if (this.activeGalleryEvent) {
+      this.closePhotoGallery();
+      return;
+    }
+
+    this.closeHistoryPopover();
   }
 
   formatDate(event: LitterPickEvent): string {
@@ -126,7 +152,81 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
   }
 
   primaryPhoto(event: LitterPickEvent): string {
-    return event.photos?.[0]?.dataUrl || '';
+    return this.eventPhotos(event)[0]?.dataUrl || '';
+  }
+
+  eventPhotos(event: LitterPickEvent): PhotoAttachment[] {
+    return (event.photos || []).filter((photo) => Boolean(photo.dataUrl?.trim()));
+  }
+
+  eventPhotoAlt(event: LitterPickEvent, index: number): string {
+    const title = event.title?.trim() || 'Community litter pick';
+    return `${title} photo ${index + 1}`;
+  }
+
+  trackPhoto(index: number, photo: PhotoAttachment): string {
+    return photo.id || `${photo.fileName}-${index}`;
+  }
+
+  galleryButtonLabel(event: LitterPickEvent): string {
+    const count = this.eventPhotos(event).length;
+    return count === 1 ? 'View photo' : `View ${count} photos`;
+  }
+
+  galleryButtonAriaLabel(event: LitterPickEvent): string {
+    const count = this.eventPhotos(event).length;
+    return count === 1 ? 'View event photo' : `View ${count} event photos`;
+  }
+
+  openPhotoGallery(event: LitterPickEvent, index = 0): void {
+    const photos = this.eventPhotos(event);
+    if (!photos.length) {
+      return;
+    }
+
+    this.activeHistoryPopover = '';
+    this.activeGalleryEvent = event;
+    this.activeGalleryIndex = Math.min(Math.max(index, 0), photos.length - 1);
+  }
+
+  closePhotoGallery(): void {
+    this.activeGalleryEvent = null;
+    this.activeGalleryIndex = 0;
+  }
+
+  activeGalleryPhotos(): PhotoAttachment[] {
+    return this.activeGalleryEvent ? this.eventPhotos(this.activeGalleryEvent) : [];
+  }
+
+  activeGalleryPhoto(): PhotoAttachment | null {
+    return this.activeGalleryPhotos()[this.activeGalleryIndex] || null;
+  }
+
+  setActiveGalleryPhoto(index: number): void {
+    const photos = this.activeGalleryPhotos();
+    if (!photos.length) {
+      return;
+    }
+
+    this.activeGalleryIndex = Math.min(Math.max(index, 0), photos.length - 1);
+  }
+
+  previousGalleryPhoto(): void {
+    const photos = this.activeGalleryPhotos();
+    if (!photos.length) {
+      return;
+    }
+
+    this.activeGalleryIndex = (this.activeGalleryIndex - 1 + photos.length) % photos.length;
+  }
+
+  nextGalleryPhoto(): void {
+    const photos = this.activeGalleryPhotos();
+    if (!photos.length) {
+      return;
+    }
+
+    this.activeGalleryIndex = (this.activeGalleryIndex + 1) % photos.length;
   }
 
   contactEmail(event: LitterPickEvent): string {
@@ -150,6 +250,103 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
     return 'Join this litter pick';
   }
 
+  creatorName(event: LitterPickEvent): string {
+    return event.createdBy?.displayName?.trim() || 'Happy Healthy Hethersett';
+  }
+
+  creatorAvatar(event: LitterPickEvent): string {
+    return event.createdBy?.avatarDataUrl || '';
+  }
+
+  creatorInitials(event: LitterPickEvent): string {
+    const parts = this.creatorName(event)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2);
+    return (parts.map((part) => part[0]).join('') || 'HH').toUpperCase();
+  }
+
+  updaterName(event: LitterPickEvent): string {
+    return event.updatedBy?.displayName?.trim() || 'Happy Healthy Hethersett';
+  }
+
+  updaterAvatar(event: LitterPickEvent): string {
+    return event.updatedBy?.avatarDataUrl || '';
+  }
+
+  updaterInitials(event: LitterPickEvent): string {
+    const parts = this.updaterName(event)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2);
+    return (parts.map((part) => part[0]).join('') || 'HH').toUpperCase();
+  }
+
+  createdMeta(event: LitterPickEvent): string {
+    const date = this.formatCreatedAt(event.createdAt);
+    return date ? `Created by ${this.creatorName(event)} · ${date}` : `Created by ${this.creatorName(event)}`;
+  }
+
+  updatedMeta(event: LitterPickEvent): string {
+    const date = this.formatCreatedAt(event.updatedAt);
+    return date ? `Updated by ${this.updaterName(event)} · ${date}` : `Updated by ${this.updaterName(event)}`;
+  }
+
+  creatorHistoryLabel(event: LitterPickEvent): string {
+    const date = this.formatCreatedAt(event.createdAt);
+    if (this.showUpdatedMeta(event) && !this.showUpdaterAvatar(event)) {
+      const editedDate = this.formatCreatedAt(event.updatedAt);
+      return editedDate
+        ? `Created and edited by ${this.creatorName(event)}. Edited on ${editedDate}`
+        : `Created and edited by ${this.creatorName(event)}`;
+    }
+
+    return date ? `Created by ${this.creatorName(event)} on ${date}` : `Created by ${this.creatorName(event)}`;
+  }
+
+  updaterHistoryLabel(event: LitterPickEvent): string {
+    const date = this.formatCreatedAt(event.updatedAt);
+    return date ? `Edited by ${this.updaterName(event)} on ${date}` : `Edited by ${this.updaterName(event)}`;
+  }
+
+  showCreatedMeta(event: LitterPickEvent): boolean {
+    return Boolean(event.createdAt || event.createdBy);
+  }
+
+  showUpdatedMeta(event: LitterPickEvent): boolean {
+    if (!event.updatedAt && !event.updatedBy) {
+      return false;
+    }
+
+    return !this.sameMeta(event.createdAt, event.updatedAt, event.createdBy?.id, event.updatedBy?.id);
+  }
+
+  showUpdaterAvatar(event: LitterPickEvent): boolean {
+    if (!this.showUpdatedMeta(event)) {
+      return false;
+    }
+
+    if (event.createdBy?.id && event.updatedBy?.id) {
+      return event.createdBy.id !== event.updatedBy.id;
+    }
+
+    return this.creatorName(event) !== this.updaterName(event);
+  }
+
+  historyPopoverId(index: number, action: 'created' | 'edited'): string {
+    return `litter-pick-history-${index}-${action}`;
+  }
+
+  isHistoryPopoverOpen(index: number, action: 'created' | 'edited'): boolean {
+    return this.activeHistoryPopover === this.historyPopoverId(index, action);
+  }
+
+  toggleHistoryPopover(index: number, action: 'created' | 'edited', event: MouseEvent): void {
+    event.stopPropagation();
+    const id = this.historyPopoverId(index, action);
+    this.activeHistoryPopover = this.activeHistoryPopover === id ? '' : id;
+  }
+
   attendanceButtonLabel(event: LitterPickEvent): string {
     if (this.attendanceUpdating[event.id]) {
       return 'Saving...';
@@ -168,6 +365,27 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
       : 'Tell organisers you plan to come';
   }
 
+  testReminderLabel(event: LitterPickEvent): string {
+    const state = this.notificationTestState[event.id] || 'idle';
+    if (state === 'sending') {
+      return 'Sending...';
+    }
+    if (state === 'sent') {
+      return 'Test sent';
+    }
+    if (state === 'failed') {
+      return 'Try test again';
+    }
+    return 'Send test reminder';
+  }
+
+  testReminderTitle(event: LitterPickEvent): string {
+    const state = this.notificationTestState[event.id] || 'idle';
+    return state === 'failed'
+      ? this.notificationTestMessage[event.id] || 'The test reminder could not be sent. Check notification permission and try again.'
+      : 'Send a test push notification to this browser now.';
+  }
+
   toggleAttendance(event: LitterPickEvent): void {
     if (!this.currentUser || this.attendanceUpdating[event.id]) {
       return;
@@ -175,6 +393,9 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
 
     const attending = !event.isAttending;
     this.attendanceUpdating = { ...this.attendanceUpdating, [event.id]: true };
+    if (attending) {
+      this.pushNotificationsService.enableLitterPickReminders().subscribe();
+    }
     this.litterPickEventsService.setAttendance(event.id, attending).subscribe({
       next: (response) => {
         this.litterPicks = this.litterPicks.map((item) =>
@@ -190,6 +411,28 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
       error: () => {
         this.attendanceUpdating = { ...this.attendanceUpdating, [event.id]: false };
       }
+    });
+  }
+
+  sendTestReminder(event: LitterPickEvent): void {
+    const state = this.notificationTestState[event.id] || 'idle';
+    if (!this.currentUser || state === 'sending') {
+      return;
+    }
+
+    this.notificationTestState = { ...this.notificationTestState, [event.id]: 'sending' };
+    this.notificationTestMessage = { ...this.notificationTestMessage, [event.id]: '' };
+    this.pushNotificationsService.sendTestReminder().subscribe((result) => {
+      this.notificationTestState = {
+        ...this.notificationTestState,
+        [event.id]: result.ok ? 'sent' : 'failed'
+      };
+      this.notificationTestMessage = {
+        ...this.notificationTestMessage,
+        [event.id]: result.ok
+          ? 'Chrome accepted the notification display request. If no banner appears, check macOS notification settings for Google Chrome.'
+          : this.notificationFailureMessage(result.reason)
+      };
     });
   }
 
@@ -242,6 +485,58 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
         this.litterPicks = this.litterPicks.map((event) => ({ ...event, isAttending: false }));
       }
     });
+  }
+
+  private notificationFailureMessage(reason?: PushReminderResultReason): string {
+    if (reason === 'unsupported') {
+      return 'This browser does not support web push notifications.';
+    }
+    if (reason === 'permission-denied') {
+      return 'Notifications are blocked for this site. Allow them in your browser settings, then try again.';
+    }
+    if (reason === 'permission-dismissed') {
+      return 'Notification permission was not allowed, so the test could not be sent.';
+    }
+    if (reason === 'not-configured') {
+      return 'Push notifications are not configured on the API. Restart the API after adding the VAPID keys.';
+    }
+    if (reason === 'subscription-failed') {
+      return 'This browser could not create a push subscription. Check notification permission and try again.';
+    }
+    if (reason === 'display-timeout') {
+      return 'The API sent the push, but this browser did not confirm displaying it. In Chrome, check macOS Notifications, Focus mode and Chrome site notification settings.';
+    }
+    if (reason === 'display-failed') {
+      return 'This browser received the push but could not display the notification. Check Chrome and macOS notification settings.';
+    }
+    return 'The API could not send the test notification. Please check the API is running and try again.';
+  }
+
+  private formatCreatedAt(value?: string): string {
+    if (!value) {
+      return '';
+    }
+
+    const createdAt = new Date(value);
+    if (Number.isNaN(createdAt.getTime())) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(createdAt);
+  }
+
+  private sameMeta(createdAt?: string, updatedAt?: string, createdById?: string, updatedById?: string): boolean {
+    const createdTime = createdAt ? new Date(createdAt).getTime() : Number.NaN;
+    const updatedTime = updatedAt ? new Date(updatedAt).getTime() : Number.NaN;
+    const sameTime = Number.isFinite(createdTime) && Number.isFinite(updatedTime) && Math.abs(createdTime - updatedTime) < 1000;
+    const sameUser = (createdById || '') === (updatedById || '');
+    return sameTime && sameUser;
   }
 
   private upcomingOpenEvents(events: LitterPickEvent[]): LitterPickEvent[] {

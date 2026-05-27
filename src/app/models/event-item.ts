@@ -1,4 +1,5 @@
 import { PhotoAttachment } from './photo-attachment';
+import { EventCreator } from './event-creator';
 
 export interface EventItem {
   id?: string;
@@ -15,4 +16,8 @@ export interface EventItem {
   imageUrl?: string;
   imageAlt?: string;
   photos?: PhotoAttachment[];
+  createdAt?: string;
+  createdBy?: EventCreator;
+  updatedAt?: string;
+  updatedBy?: EventCreator;
 }

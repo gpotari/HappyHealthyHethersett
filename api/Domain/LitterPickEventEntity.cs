@@ -29,4 +29,8 @@ public class LitterPickEventEntity
     public string AreasJson { get; set; } = "[]";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? CreatedByUserId { get; set; }
+    public AppUser? CreatedByUser { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
+    public AppUser? UpdatedByUser { get; set; }
 }

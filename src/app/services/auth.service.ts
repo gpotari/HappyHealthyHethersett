@@ -103,6 +103,10 @@ export class AuthService {
     );
   }
 
+  deleteUser(userId: string) {
+    return this.http.delete<void>(`${this.apiUrl}/users/${userId}`, { withCredentials: true });
+  }
+
   hasRole(role: string): boolean {
     return this.currentUser?.roles.includes(role) ?? false;
   }

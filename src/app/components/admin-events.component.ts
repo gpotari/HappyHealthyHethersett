@@ -1,16 +1,17 @@
-import { AfterViewChecked, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { AfterViewChecked, Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { forkJoin, Subscription } from 'rxjs';
 import { EventItem } from '../models/event-item';
 import { FeedbackMessage } from '../models/feedback-message';
-import { LitterPickArea, LitterPickEvent } from '../models/litter-pick-event';
-import { LitterReport } from '../models/litter-report';
+import { LitterPickArea, LitterPickCoverageItem, LitterPickEvent } from '../models/litter-pick-event';
+import { LitterReport, LitterReportState } from '../models/litter-report';
 import { PhotoAttachment } from '../models/photo-attachment';
 import { CurrentUser, ManagedUser } from '../models/user';
 import {
   BoundaryCoordinate,
   HETHERSETT_BOUNDARY,
+  HETHERSETT_MAP_BOUNDS,
   HETHERSETT_BOUNDARY_SOURCE,
   MapPoint
 } from '../data/hethersett-boundary';
@@ -23,6 +24,8 @@ import { LitterReportsService } from '../services/litter-reports.service';
 
 type AdminSection = 'events' | 'feedback' | 'reports' | 'litterPicks' | 'users';
 type AuthMode = 'signIn' | 'register';
+type UserRole = 'Admin' | 'Editor' | 'User';
+type ReportStateFilter = LitterReportState | 'all';
 type EventRequiredField = 'title' | 'date' | 'start' | 'end' | 'description';
 type LitterPickRequiredField = 'date' | 'start' | 'end' | 'meetingPoint';
 
@@ -35,11 +38,37 @@ type MapTile = {
 };
 
 type LitterPickMapMode = 'draw' | 'pan' | 'edit' | 'meeting';
+type AreaEditControlMode = 'polygon' | 'street';
 type MeetingPointTarget = 'new' | 'draft';
+
+type StreetSearchResult = {
+  lat: string;
+  lon: string;
+  category?: string;
+  class?: string;
+  type?: string;
+  addresstype?: string;
+  name?: string;
+  display_name?: string;
+  boundingbox?: string[];
+  importance?: number | string;
+  place_rank?: number | string;
+  osm_type?: string;
+  osm_id?: number | string;
+  geojson?: StreetGeoJson;
+};
+
+type StreetGeoJson = {
+  type?: string;
+  coordinates?: unknown;
+  geometries?: StreetGeoJson[];
+};
 
 type AreaEditDragState = {
   pointerId: number;
   areaId: string;
+  polygonIndex: number;
+  controlMode: AreaEditControlMode;
   kind: 'vertex' | 'move';
   startPoint: MapPoint;
   originalPoints: MapPoint[];
@@ -113,13 +142,20 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   events: EventItem[] = [];
   feedbackMessages: FeedbackMessage[] = [];
   reports: LitterReport[] = [];
+  readonly reportStates: LitterReportState[] = ['new', 'addressed'];
+  reportStateFilter: ReportStateFilter = 'all';
+  selectedReportId: string | null = null;
+  openReportStatePickerId: string | null = null;
+  reportStateSaving: Record<string, boolean> = {};
+  reportDeleting: Record<string, boolean> = {};
+  activeReportPhoto: PhotoAttachment | null = null;
   litterPickEvents: LitterPickEvent[] = [];
   users: ManagedUser[] = [];
   usersLoading = false;
   usersSaving = false;
   usersError = '';
   resetPasswords: Record<string, string> = {};
-  pendingUserRoles: Record<string, 'Admin' | 'Editor'> = {};
+  pendingUserRoles: Record<string, UserRole> = {};
   pendingUserDisabled: Record<string, boolean> = {};
   newUser = this.emptyUserForm();
   reportsLoading = false;
@@ -159,11 +195,25 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   litterPickZoom = 13.7;
   litterPickCenterLat = 52.5966;
   litterPickCenterLng = 1.181;
+  litterPickStreetSearch = '';
+  litterPickStreetSearchLoading = false;
+  litterPickStreetSearchMessage = '';
+  areaStreetLookupMessages: Record<string, string> = {};
+  areaStreetLookupBusy: Record<string, boolean> = {};
+  areaStreetLookupFields: Record<string, string> = {};
+  newAreaStreetInputs: Record<string, string> = {};
+  areaStreetPreviewPolygons: Record<string, MapPoint[][]> = {};
+  areaStreetSectionsExpanded: Record<string, boolean> = {};
   litterPickViewportWidth = 760;
   litterPickViewportHeight = 420;
   litterPickMapMode: LitterPickMapMode = 'pan';
   litterPickWorkspaceFullscreen = false;
   editingAreaId: string | null = null;
+  editingAreaPolygonIndex: number | null = null;
+  editingAreaControlMode: AreaEditControlMode = 'polygon';
+  editingAreaStreetIndex: number | null = null;
+  drawingAreaId: string | null = null;
+  drawingCoverageItemIndex: number | null = null;
   meetingPointTarget: MeetingPointTarget | null = null;
   private dragStart: MapPoint | null = null;
   private areaEditDrag?: AreaEditDragState;
@@ -173,9 +223,16 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     startY: number;
     startCenter: MapPoint;
   };
+  private pendingPanPosition?: { clientX: number; clientY: number };
+  private panAnimationFrame: number | null = null;
   private resizeObserver?: ResizeObserver;
   private observedLitterPickMap?: HTMLElement;
   private authSubscription?: Subscription;
+  private areaStreetLookupTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+  private areaStreetLookupTokens: Record<string, number> = {};
+  private areaStreetLookupOperations: Record<string, string> = {};
+  private areaStreetPreviewTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+  private areaStreetPreviewTokens: Record<string, number> = {};
   private adminWorkspaceLoaded = false;
 
   @ViewChild('litterPickMap') litterPickMap?: ElementRef<HTMLElement>;
@@ -193,7 +250,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.authSubscription = this.authService.user$.subscribe((user) => {
       if (this.authChecking) {
         this.currentUser = user;
-        this.isUnlocked = user?.roles.includes('Admin') ?? false;
+        this.isUnlocked = this.hasAdminPanelAccess(user);
         return;
       }
 
@@ -228,6 +285,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   ngOnDestroy(): void {
     this.authSubscription?.unsubscribe();
     this.resizeObserver?.disconnect();
+    if (this.panAnimationFrame !== null) {
+      cancelAnimationFrame(this.panAnimationFrame);
+    }
+    Object.values(this.areaStreetLookupTimers).forEach((timer) => clearTimeout(timer));
+    Object.values(this.areaStreetPreviewTimers).forEach((timer) => clearTimeout(timer));
   }
 
   unlock(): void {
@@ -292,7 +354,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
         this.registerPasswordInput = '';
         this.registerConfirmPasswordInput = '';
         this.authMode = 'signIn';
-        this.registerMessage = 'Registration sent. An admin needs to enable the account before you can sign in.';
+        this.registerMessage = 'Registration complete. You can now sign in.';
       },
       error: () => {
         this.registerLoading = false;
@@ -331,6 +393,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   deleteEvent(index: number): void {
+    if (!this.canDeleteContent) {
+      this.errorMessage = 'Editors can create and edit events, but only admins can delete them.';
+      return;
+    }
+
     this.statusMessage = '';
     const updated = this.events.filter((_, i) => i !== index);
     this.saveEvents(updated, 'Event deleted and saved.', () => {
@@ -359,7 +426,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       updatedAt: now
     };
     const updated = [event, ...this.litterPickEvents];
-    this.saveLitterPickEvents(updated, 'Litter pick event created. Use + Team to draw coverage.', (events) => {
+    this.saveLitterPickEvents(updated, 'Litter pick event created. Use + Team to add a team, then draw coverage or list streets.', (events) => {
       this.newLitterPickEvent = this.emptyLitterPickEvent();
       this.litterPickCreateAttempted = false;
       this.showLitterPickCreateForm = false;
@@ -368,6 +435,21 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   deleteLitterPickEvent(index: number): void {
+    if (!this.canDeleteContent) {
+      this.errorMessage = 'Editors can create and edit litter pick events, but only admins can delete them.';
+      return;
+    }
+
+    const event = this.litterPickEvents[index];
+    if (!event) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${this.formatLitterPickDate(event)}? This permanently removes the litter pick event.`);
+    if (!confirmed) {
+      return;
+    }
+
     this.statusMessage = '';
     const updated = this.litterPickEvents.filter((_, i) => i !== index);
     this.saveLitterPickEvents(updated, 'Litter pick event deleted and saved.', () => {
@@ -376,6 +458,14 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       this.draftLitterPickEvent = null;
       this.activeAreaId = null;
     });
+  }
+
+  deleteCurrentLitterPickEvent(): void {
+    if (this.expandedLitterPickIndex === null) {
+      return;
+    }
+
+    this.deleteLitterPickEvent(this.expandedLitterPickIndex);
   }
 
   saveChanges(): void {
@@ -401,6 +491,12 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
   async uploadJson(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
+    if (!this.canDeleteContent) {
+      this.errorMessage = 'Only admins can upload event JSON because it can remove events.';
+      input.value = '';
+      return;
+    }
+
     const file = input.files?.[0];
     if (!file) {
       return;
@@ -550,12 +646,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.errorMessage = '';
   }
 
-  toggleLitterPickDetails(index: number): void {
-    if (this.expandedLitterPickIndex === index) {
-      this.closeLitterPickDetails();
-      return;
-    }
-
+  openLitterPickDetails(index: number): void {
     this.openLitterPickDraft(index, this.litterPickEvents[index]?.status === 'open');
     this.showCreateForm = false;
     this.showLitterPickCreateForm = false;
@@ -580,6 +671,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.dragStart = null;
     this.draftAreaPoints = [];
     this.editingAreaId = null;
+    this.editingAreaPolygonIndex = null;
+    this.editingAreaControlMode = 'polygon';
+    this.editingAreaStreetIndex = null;
+    this.drawingAreaId = null;
+    this.drawingCoverageItemIndex = null;
     this.meetingPointTarget = null;
     this.areaEditDrag = undefined;
     this.litterPickMapMode = 'pan';
@@ -607,6 +703,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.litterPickEditAttempted = false;
     this.litterPickMapMode = 'pan';
     this.editingAreaId = null;
+    this.editingAreaPolygonIndex = null;
+    this.editingAreaControlMode = 'polygon';
+    this.editingAreaStreetIndex = null;
+    this.drawingAreaId = null;
+    this.drawingCoverageItemIndex = null;
     this.meetingPointTarget = null;
     this.areaEditDrag = undefined;
     this.statusMessage = '';
@@ -655,6 +756,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       this.litterPickPhotoChangePending = false;
       this.litterPickEditAttempted = false;
       this.editingAreaId = null;
+      this.editingAreaPolygonIndex = null;
+      this.editingAreaControlMode = 'polygon';
+      this.editingAreaStreetIndex = null;
+      this.drawingAreaId = null;
+      this.drawingCoverageItemIndex = null;
       this.areaEditDrag = undefined;
     });
   }
@@ -693,9 +799,15 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   showSection(section: AdminSection): void {
+    if (!this.canOpenSection(section)) {
+      section = 'events';
+    }
+
     this.activeAdminSection = section;
     this.statusMessage = '';
     this.errorMessage = '';
+    this.closeReportPhoto();
+    this.closeReportDetails();
 
     if (section === 'reports') {
       this.closeDetails();
@@ -741,6 +853,20 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     return this.currentUser?.roles.includes('Admin') ?? false;
   }
 
+  get canManageSubmissions(): boolean {
+    return this.currentUser?.roles.includes('Admin') ?? false;
+  }
+
+  get canDeleteContent(): boolean {
+    return this.currentUser?.roles.includes('Admin') ?? false;
+  }
+
+  get adminIntro(): string {
+    return this.canManageSubmissions
+      ? 'Manage public events, feedback and litter reports from one simple workspace.'
+      : 'Manage public events and litter pick events from one simple workspace.';
+  }
+
   get isSignedInWithoutAdminAccess(): boolean {
     return Boolean(this.currentUser && !this.isUnlocked);
   }
@@ -748,11 +874,14 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   private handleAuthenticatedUser(user: CurrentUser | null): void {
     const previousUserId = this.currentUser?.id || null;
     const wasUnlocked = this.isUnlocked;
+    const wasAdmin = this.currentUser?.roles.includes('Admin') ?? false;
     this.currentUser = user;
-    this.isUnlocked = user?.roles.includes('Admin') ?? false;
+    this.isUnlocked = this.hasAdminPanelAccess(user);
 
     if (this.isUnlocked) {
-      if (!this.adminWorkspaceLoaded || !wasUnlocked || previousUserId !== user?.id) {
+      this.ensureOpenSectionIsAllowed();
+      this.clearRestrictedWorkspaceForEditors();
+      if (!this.adminWorkspaceLoaded || !wasUnlocked || previousUserId !== user?.id || (!wasAdmin && this.canManageUsers)) {
         this.adminWorkspaceLoaded = true;
         this.loadAdminWorkspace();
       }
@@ -768,10 +897,16 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.eventsService.loadEvents().subscribe(() => {
       this.loadEvents();
     });
-    this.loadReports();
-    this.loadFeedbackMessages();
     this.loadLitterPickEvents();
-    this.loadUsers();
+
+    if (this.canManageSubmissions) {
+      this.loadReports();
+      this.loadFeedbackMessages();
+    }
+
+    if (this.canManageUsers) {
+      this.loadUsers();
+    }
   }
 
   private clearAdminWorkspace(): void {
@@ -789,6 +924,35 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.showUserCreateForm = false;
     this.closeDetails();
     this.closeLitterPickDetails();
+  }
+
+  private hasAdminPanelAccess(user: CurrentUser | null): boolean {
+    return user?.roles.some((role) => role === 'Admin' || role === 'Editor') ?? false;
+  }
+
+  private canOpenSection(section: AdminSection): boolean {
+    return section === 'events' || section === 'litterPicks' || this.canManageSubmissions;
+  }
+
+  private ensureOpenSectionIsAllowed(): void {
+    if (!this.canOpenSection(this.activeAdminSection)) {
+      this.activeAdminSection = 'events';
+    }
+  }
+
+  private clearRestrictedWorkspaceForEditors(): void {
+    if (this.canManageSubmissions) {
+      return;
+    }
+
+    this.feedbackMessages = [];
+    this.reports = [];
+    this.users = [];
+    this.resetPasswords = {};
+    this.pendingUserRoles = {};
+    this.pendingUserDisabled = {};
+    this.showUserCreateForm = false;
+    this.closeReportDetails();
   }
 
   toggleUserCreateForm(): void {
@@ -824,7 +988,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       .subscribe({
         next: (user) => {
           this.users = [...this.users, user].sort((a, b) => a.email.localeCompare(b.email));
-          this.pendingUserRoles[user.id] = this.userRole(user) as 'Admin' | 'Editor';
+          this.pendingUserRoles[user.id] = this.userRole(user);
           this.pendingUserDisabled[user.id] = user.isDisabled;
           this.newUser = this.emptyUserForm();
           this.showUserCreateForm = false;
@@ -837,7 +1001,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   setUserRole(user: ManagedUser, role: string): void {
-    if (role !== 'Admin' && role !== 'Editor') {
+    if (!this.isUserRole(role)) {
       return;
     }
 
@@ -850,6 +1014,34 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     }
 
     this.pendingUserDisabled[user.id] = !this.selectedUserDisabled(user);
+  }
+
+  deleteUser(user: ManagedUser): void {
+    if (this.currentUser?.id === user.id) {
+      this.usersError = 'You cannot delete your own account.';
+      return;
+    }
+
+    const label = user.displayName ? `${user.displayName} (${user.email})` : user.email;
+    const confirmed = window.confirm(`Delete ${label}? This permanently removes the account and cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    this.usersError = '';
+    this.statusMessage = '';
+    this.authService.deleteUser(user.id).subscribe({
+      next: () => {
+        this.users = this.users.filter((item) => item.id !== user.id);
+        delete this.pendingUserRoles[user.id];
+        delete this.pendingUserDisabled[user.id];
+        delete this.resetPasswords[user.id];
+        this.statusMessage = `Deleted ${user.email}.`;
+      },
+      error: () => {
+        this.usersError = 'Unable to delete user.';
+      }
+    });
   }
 
   saveUserChanges(): void {
@@ -908,12 +1100,16 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     });
   }
 
-  userRole(user: ManagedUser): string {
-    return user.roles.includes('Admin') ? 'Admin' : 'Editor';
+  userRole(user: ManagedUser): UserRole {
+    if (user.roles.includes('Admin')) {
+      return 'Admin';
+    }
+
+    return user.roles.includes('Editor') ? 'Editor' : 'User';
   }
 
-  selectedUserRole(user: ManagedUser): 'Admin' | 'Editor' {
-    return this.pendingUserRoles[user.id] ?? (this.userRole(user) as 'Admin' | 'Editor');
+  selectedUserRole(user: ManagedUser): UserRole {
+    return this.pendingUserRoles[user.id] ?? this.userRole(user);
   }
 
   hasPendingUserRole(user: ManagedUser): boolean {
@@ -945,6 +1141,104 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     return this.formatDateTime(value);
   }
 
+  creatorName(event: EventItem | LitterPickEvent): string {
+    return event.createdBy?.displayName?.trim() || 'Happy Healthy Hethersett';
+  }
+
+  creatorAvatar(event: EventItem | LitterPickEvent): string {
+    return event.createdBy?.avatarDataUrl || '';
+  }
+
+  creatorInitials(event: EventItem | LitterPickEvent): string {
+    const parts = this.creatorName(event)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2);
+    return (parts.map((part) => part[0]).join('') || 'HH').toUpperCase();
+  }
+
+  updaterName(event: EventItem | LitterPickEvent): string {
+    return event.updatedBy?.displayName?.trim() || 'Happy Healthy Hethersett';
+  }
+
+  updaterAvatar(event: EventItem | LitterPickEvent): string {
+    return event.updatedBy?.avatarDataUrl || '';
+  }
+
+  updaterInitials(event: EventItem | LitterPickEvent): string {
+    const parts = this.updaterName(event)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2);
+    return (parts.map((part) => part[0]).join('') || 'HH').toUpperCase();
+  }
+
+  createdDate(event: EventItem | LitterPickEvent): string {
+    if (!event.createdAt) {
+      return 'Created date not saved yet';
+    }
+
+    const createdAt = new Date(event.createdAt);
+    if (Number.isNaN(createdAt.getTime())) {
+      return 'Created date not saved yet';
+    }
+
+    return this.formatDateTime(event.createdAt);
+  }
+
+  updatedDate(event: EventItem | LitterPickEvent): string {
+    if (!event.updatedAt) {
+      return 'Updated date not saved yet';
+    }
+
+    const updatedAt = new Date(event.updatedAt);
+    if (Number.isNaN(updatedAt.getTime())) {
+      return 'Updated date not saved yet';
+    }
+
+    return this.formatDateTime(event.updatedAt);
+  }
+
+  creatorMeta(event: EventItem | LitterPickEvent): string {
+    return `Created by ${this.creatorName(event)} · ${this.createdDate(event)}`;
+  }
+
+  updaterMeta(event: EventItem | LitterPickEvent): string {
+    return `Updated by ${this.updaterName(event)} · ${this.updatedDate(event)}`;
+  }
+
+  creatorHistoryLabel(event: EventItem | LitterPickEvent): string {
+    if (this.showUpdatedMeta(event) && !this.showUpdaterAvatar(event)) {
+      return `Created and edited by ${this.creatorName(event)}. Edited on ${this.updatedDate(event)}`;
+    }
+
+    return `Created by ${this.creatorName(event)} on ${this.createdDate(event)}`;
+  }
+
+  updaterHistoryLabel(event: EventItem | LitterPickEvent): string {
+    return `Edited by ${this.updaterName(event)} on ${this.updatedDate(event)}`;
+  }
+
+  showUpdatedMeta(event: EventItem | LitterPickEvent): boolean {
+    if (!event.updatedAt && !event.updatedBy) {
+      return false;
+    }
+
+    return !this.sameMeta(event.createdAt, event.updatedAt, event.createdBy?.id, event.updatedBy?.id);
+  }
+
+  showUpdaterAvatar(event: EventItem | LitterPickEvent): boolean {
+    if (!this.showUpdatedMeta(event)) {
+      return false;
+    }
+
+    if (event.createdBy?.id && event.updatedBy?.id) {
+      return event.createdBy.id !== event.updatedBy.id;
+    }
+
+    return this.creatorName(event) !== this.updaterName(event);
+  }
+
   private formatDateTime(value: string): string {
     return new Intl.DateTimeFormat('en-GB', {
       dateStyle: 'medium',
@@ -952,8 +1246,182 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     }).format(new Date(value));
   }
 
+  private sameMeta(createdAt?: string, updatedAt?: string, createdById?: string, updatedById?: string): boolean {
+    const createdTime = createdAt ? new Date(createdAt).getTime() : Number.NaN;
+    const updatedTime = updatedAt ? new Date(updatedAt).getTime() : Number.NaN;
+    const sameTime = Number.isFinite(createdTime) && Number.isFinite(updatedTime) && Math.abs(createdTime - updatedTime) < 1000;
+    const sameUser = (createdById || '') === (updatedById || '');
+    return sameTime && sameUser;
+  }
+
   refreshReports(): void {
     this.loadReports();
+  }
+
+  get filteredReports(): LitterReport[] {
+    return this.reports.filter((report) => this.reportMatchesFilter(report));
+  }
+
+  get selectedReport(): LitterReport | null {
+    if (!this.selectedReportId) {
+      return null;
+    }
+
+    return this.reports.find((report) => report.id === this.selectedReportId) ?? null;
+  }
+
+  setReportFilter(filter: ReportStateFilter): void {
+    this.reportStateFilter = filter;
+    this.closeReportStatePicker();
+    if (this.selectedReport && !this.reportMatchesFilter(this.selectedReport)) {
+      this.selectedReportId = null;
+    }
+  }
+
+  selectReport(report: LitterReport): void {
+    this.selectedReportId = report.id ?? null;
+  }
+
+  closeReportDetails(): void {
+    this.selectedReportId = null;
+    this.closeReportPhoto();
+    this.closeReportStatePicker();
+  }
+
+  @HostListener('document:click')
+  closeReportStatePicker(): void {
+    this.openReportStatePickerId = null;
+  }
+
+  toggleReportStatePicker(report: LitterReport, event?: Event): void {
+    event?.stopPropagation();
+    if (!report.id || this.isReportStateSaving(report) || this.isReportDeleting(report)) {
+      return;
+    }
+
+    const pickerId = this.reportStatePickerId(report);
+    this.openReportStatePickerId = this.openReportStatePickerId === pickerId ? null : pickerId;
+  }
+
+  isReportStatePickerOpen(report: LitterReport): boolean {
+    return this.openReportStatePickerId === this.reportStatePickerId(report);
+  }
+
+  chooseReportState(report: LitterReport, state: string, event?: Event): void {
+    event?.stopPropagation();
+    this.closeReportStatePicker();
+    this.setReportState(report, state);
+  }
+
+  setReportState(report: LitterReport, state: string): void {
+    const id = report.id;
+    const nextState = this.normalizeReportState(state);
+    if (!id || this.reportState(report) === nextState) {
+      return;
+    }
+
+    this.statusMessage = '';
+    this.reportsError = '';
+    this.reportStateSaving[id] = true;
+    this.litterReportsService.updateReportState(id, nextState).subscribe({
+      next: (updatedReport) => {
+        this.reportStateSaving[id] = false;
+        this.reports = this.sortReports(this.reports.map((item) => (item.id === updatedReport.id ? updatedReport : item)));
+        if (this.selectedReportId === updatedReport.id && !this.reportMatchesFilter(updatedReport)) {
+          this.selectedReportId = null;
+        }
+        this.statusMessage = `Litter report marked ${this.reportStateLabel(updatedReport.state).toLowerCase()}.`;
+      },
+      error: () => {
+        this.reportStateSaving[id] = false;
+        this.reportsError = 'Unable to update that litter report.';
+      }
+    });
+  }
+
+  deleteReport(report: LitterReport): void {
+    const id = report.id;
+    if (!id) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${report.amount || 'this litter report'} from ${this.formatReportDate(report)}? This permanently removes the report and photos.`);
+    if (!confirmed) {
+      return;
+    }
+
+    this.statusMessage = '';
+    this.reportsError = '';
+    this.reportDeleting[id] = true;
+    this.litterReportsService.deleteReport(id).subscribe({
+      next: () => {
+        delete this.reportDeleting[id];
+        delete this.reportStateSaving[id];
+        this.reports = this.reports.filter((item) => item.id !== id);
+        this.closeReportPhoto();
+        if (this.selectedReportId === id) {
+          this.selectedReportId = null;
+        }
+        this.statusMessage = 'Litter report deleted.';
+      },
+      error: () => {
+        this.reportDeleting[id] = false;
+        this.reportsError = 'Unable to delete that litter report.';
+      }
+    });
+  }
+
+  reportState(report: LitterReport): LitterReportState {
+    return this.normalizeReportState(report.state);
+  }
+
+  reportStateLabel(state?: string): string {
+    return this.normalizeReportState(state) === 'addressed' ? 'Addressed' : 'Open';
+  }
+
+  reportStatePickerId(report: LitterReport): string {
+    return report.id ? `report-state-${report.id}` : '';
+  }
+
+  reportAmountLevel(report: LitterReport): 'small' | 'medium' | 'large' | 'unknown' {
+    const amount = (report.amount || '').toLowerCase();
+    if (amount.includes('large')) {
+      return 'large';
+    }
+
+    if (amount.includes('medium')) {
+      return 'medium';
+    }
+
+    if (amount.includes('small')) {
+      return 'small';
+    }
+
+    return 'unknown';
+  }
+
+  reportAmountLabel(report: LitterReport): string {
+    return report.amount || 'Amount not specified';
+  }
+
+  reportCount(state: LitterReportState): number {
+    return this.reports.filter((report) => this.reportState(report) === state).length;
+  }
+
+  isReportStateSaving(report: LitterReport): boolean {
+    return Boolean(report.id && this.reportStateSaving[report.id]);
+  }
+
+  isReportDeleting(report: LitterReport): boolean {
+    return Boolean(report.id && this.reportDeleting[report.id]);
+  }
+
+  openReportPhoto(photo: PhotoAttachment): void {
+    this.activeReportPhoto = photo;
+  }
+
+  closeReportPhoto(): void {
+    this.activeReportPhoto = null;
   }
 
   refreshFeedback(): void {
@@ -992,6 +1460,29 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     }
 
     return `https://www.openstreetmap.org/?mlat=${report.lat.toFixed(5)}&mlon=${report.lng.toFixed(5)}#map=17/${report.lat.toFixed(5)}/${report.lng.toFixed(5)}`;
+  }
+
+  private sortReports(reports: LitterReport[]): LitterReport[] {
+    return [...reports].sort((a, b) => {
+      const stateComparison = this.reportStateRank(a) - this.reportStateRank(b);
+      if (stateComparison !== 0) {
+        return stateComparison;
+      }
+
+      return String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''));
+    });
+  }
+
+  private reportStateRank(report: LitterReport): number {
+    return this.reportState(report) === 'addressed' ? 1 : 0;
+  }
+
+  private reportMatchesFilter(report: LitterReport): boolean {
+    return this.reportStateFilter === 'all' || this.reportState(report) === this.reportStateFilter;
+  }
+
+  private normalizeReportState(state?: string): LitterReportState {
+    return state === 'addressed' ? 'addressed' : 'new';
   }
 
   get litterPickVisibleTiles(): MapTile[] {
@@ -1062,14 +1553,52 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.litterPickZoom = 13.7;
   }
 
+  async searchLitterPickStreet(): Promise<void> {
+    const query = this.litterPickStreetSearch.trim();
+    if (!query || this.litterPickStreetSearchLoading) {
+      return;
+    }
+
+    this.litterPickStreetSearchLoading = true;
+    this.litterPickStreetSearchMessage = '';
+
+    try {
+      const result = await this.findHethersettStreet(query);
+      if (!result) {
+        this.litterPickStreetSearchMessage = 'No matching Hethersett street found.';
+        return;
+      }
+
+      const lat = Number(result.lat);
+      const lng = Number(result.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        throw new Error('Street search returned invalid coordinates.');
+      }
+
+      this.focusStreetSearchResult(result);
+      this.litterPickStreetSearchMessage = `Centred on ${this.streetSearchLabel(result, query)}.`;
+    } catch {
+      this.litterPickStreetSearchMessage = 'Street search is unavailable right now.';
+    } finally {
+      this.litterPickStreetSearchLoading = false;
+    }
+  }
+
   setLitterPickMapMode(mode: LitterPickMapMode): void {
     this.litterPickMapMode = mode;
     this.dragStart = null;
     this.draftAreaPoints = [];
+    this.cancelPendingPanAnimation();
+    this.pendingPanPosition = undefined;
     this.panState = undefined;
     this.areaEditDrag = undefined;
+    this.drawingAreaId = mode === 'draw' ? this.drawingAreaId : null;
+    this.drawingCoverageItemIndex = mode === 'draw' ? this.drawingCoverageItemIndex : null;
     if (mode !== 'edit') {
       this.editingAreaId = null;
+      this.editingAreaPolygonIndex = null;
+      this.editingAreaControlMode = 'polygon';
+      this.editingAreaStreetIndex = null;
     }
     if (mode !== 'meeting') {
       this.meetingPointTarget = null;
@@ -1077,7 +1606,12 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   startNewTeamArea(): void {
-    if (!this.draftLitterPickEvent || this.draftLitterPickEvent.status === 'closed' || !this.hasAvailableTeamSticker()) {
+    if (!this.draftLitterPickEvent || this.draftLitterPickEvent.status === 'closed') {
+      return;
+    }
+
+    const sticker = this.randomAvailableSticker(this.draftLitterPickEvent);
+    if (!sticker) {
       return;
     }
 
@@ -1085,7 +1619,386 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       this.isEditingLitterPick = true;
     }
 
-    this.setLitterPickMapMode('draw');
+    const newArea: LitterPickArea = {
+      id: this.createId('area'),
+      label: `Team ${sticker.label}`,
+      stickerIcon: sticker.icon,
+      stickerLabel: sticker.label,
+      stickerColor: sticker.color,
+      stickerTint: sticker.tint,
+      stickerStroke: sticker.stroke,
+      bags: 0,
+      volunteers: 0,
+      coverageItems: [],
+      streetNames: [],
+      streets: '',
+      notes: ''
+    };
+    this.draftLitterPickEvent.areas = [...this.draftLitterPickEvent.areas, newArea];
+    this.activeAreaId = newArea.id;
+    this.areaStreetSectionsExpanded[newArea.id] = true;
+    this.setLitterPickMapMode('pan');
+    this.scrollSelectedAreaIntoView(newArea.id);
+  }
+
+  startTeamAreaDraw(areaId: string): void {
+    if (!this.draftLitterPickEvent || this.draftLitterPickEvent.status === 'closed') {
+      return;
+    }
+
+    const area = this.draftLitterPickEvent.areas.find((item) => item.id === areaId);
+    if (!area) {
+      return;
+    }
+
+    if (!this.isEditingLitterPick) {
+      this.isEditingLitterPick = true;
+    }
+
+    this.activeAreaId = areaId;
+    this.drawingAreaId = areaId;
+    this.drawingCoverageItemIndex = null;
+    this.editingAreaId = null;
+    this.editingAreaPolygonIndex = null;
+    this.editingAreaControlMode = 'polygon';
+    this.editingAreaStreetIndex = null;
+    this.litterPickMapMode = 'draw';
+    this.dragStart = null;
+    this.draftAreaPoints = [];
+    this.panState = undefined;
+    this.areaEditDrag = undefined;
+    this.scrollSelectedAreaIntoView(areaId);
+  }
+
+  startCoverageItemDraw(areaId: string, itemIndex: number): void {
+    if (!this.draftLitterPickEvent || this.draftLitterPickEvent.status === 'closed') {
+      return;
+    }
+
+    const area = this.draftLitterPickEvent.areas.find((item) => item.id === areaId);
+    const items = area ? this.normalizedAreaCoverageItems(area) : [];
+    if (!area || !items[itemIndex]) {
+      return;
+    }
+
+    if (!this.isEditingLitterPick) {
+      this.isEditingLitterPick = true;
+    }
+
+    this.activeAreaId = areaId;
+    this.drawingAreaId = areaId;
+    this.drawingCoverageItemIndex = itemIndex;
+    this.editingAreaId = null;
+    this.editingAreaPolygonIndex = null;
+    this.editingAreaControlMode = 'polygon';
+    this.editingAreaStreetIndex = null;
+    this.litterPickMapMode = 'draw';
+    this.dragStart = null;
+    this.draftAreaPoints = [];
+    this.panState = undefined;
+    this.areaEditDrag = undefined;
+    this.areaStreetSectionsExpanded[areaId] = true;
+    this.areaStreetLookupMessages[areaId] = 'Draw the coverage polygon for this item.';
+    this.scrollSelectedAreaIntoView(areaId);
+  }
+
+  onAreaStreetsChange(area: LitterPickArea): void {
+    const items = this.parseStreetNames(area.streets || '').map((streetName) =>
+      this.createStreetCoverageItem(streetName)
+    );
+    this.areaStreetSectionsExpanded[area.id] = true;
+    this.replaceAreaCoverageItems(area.id, items);
+  }
+
+  areaCoverageRows(area: LitterPickArea): LitterPickCoverageItem[] {
+    return this.normalizedAreaCoverageItems(area);
+  }
+
+  areaStreetDisplay(area: LitterPickArea): string {
+    return this.normalizedAreaCoverageItems(area)
+      .map((item, index) => this.coverageItemDisplay(item, index))
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  areaCoverageCountLabel(area: LitterPickArea): string {
+    const count = this.areaCoverageRows(area).length;
+    return count ? `${count} item${count === 1 ? '' : 's'}` : 'None';
+  }
+
+  areaStreetSummary(area: LitterPickArea): string {
+    const items = this.areaCoverageRows(area);
+    if (!items.length) {
+      return 'No streets added yet.';
+    }
+
+    const labels = items.map((item, index) => this.coverageItemDisplay(item, index)).filter(Boolean);
+    const visibleLabels = labels.slice(0, 3).join(', ');
+    const remaining = Math.max(labels.length - 3, 0);
+    return remaining ? `${visibleLabels} + ${remaining} more` : visibleLabels || this.areaCoverageCountLabel(area);
+  }
+
+  isAreaStreetsExpanded(area: LitterPickArea): boolean {
+    const stored = this.areaStreetSectionsExpanded[area.id];
+    if (stored !== undefined) {
+      return stored;
+    }
+
+    return this.areaCoverageRows(area).length === 0;
+  }
+
+  toggleAreaStreets(areaId: string): void {
+    const area = this.draftLitterPickEvent?.areas.find((item) => item.id === areaId);
+    if (!area) {
+      return;
+    }
+
+    this.areaStreetSectionsExpanded[areaId] = !this.isAreaStreetsExpanded(area);
+  }
+
+  coverageItemCanFocus(item: LitterPickCoverageItem): boolean {
+    return Boolean(item.polygon?.length || item.streetName?.trim());
+  }
+
+  coverageItemDisplay(item: LitterPickCoverageItem, index: number): string {
+    if (item.kind === 'drawn') {
+      return item.label?.trim() || `Drawn area ${index + 1}`;
+    }
+
+    return item.streetName?.trim() || item.label?.trim() || '';
+  }
+
+  setAreaCoverageItemKind(area: LitterPickArea, index: number, kind: 'street' | 'drawn'): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const items = this.normalizedAreaCoverageItems(area).map((item) => ({ ...item }));
+    const item = items[index];
+    if (!item || item.kind === kind) {
+      return;
+    }
+
+    const display = this.coverageItemDisplay(item, index);
+    items[index] = {
+      ...item,
+      kind,
+      label: kind === 'drawn' ? display || `Drawn area ${index + 1}` : item.label,
+      streetName: kind === 'street' ? item.streetName || display : undefined
+    };
+    this.clearAreaStreetPreview(area.id);
+    this.replaceAreaCoverageItems(area.id, items);
+  }
+
+  setAreaCoverageItemStreetName(area: LitterPickArea, index: number, value: string): void {
+    const items = this.normalizedAreaCoverageItems(area);
+    const item = items[index];
+    if (!item || item.kind !== 'street') {
+      return;
+    }
+
+    item.streetName = value;
+    item.label = value;
+    area.coverageItems = items;
+    area.streetNames = this.coverageItemStreetNames(items);
+    area.streets = area.streetNames.join(', ');
+    this.scheduleAreaStreetPreview(area.id, value, `street-${index}`);
+  }
+
+  setAreaCoverageItemLabel(area: LitterPickArea, index: number, value: string): void {
+    const items = this.normalizedAreaCoverageItems(area);
+    const item = items[index];
+    if (!item || item.kind !== 'drawn') {
+      return;
+    }
+
+    item.label = value;
+    area.coverageItems = items;
+  }
+
+  setNewAreaStreetInput(area: LitterPickArea, value: string): void {
+    this.newAreaStreetInputs[area.id] = value;
+    this.scheduleAreaStreetPreview(area.id, value, 'new');
+  }
+
+  addAreaStreet(area: LitterPickArea): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const streetNames = this.parseStreetNames(this.newAreaStreetInputs[area.id] || '');
+    if (!streetNames.length) {
+      return;
+    }
+
+    const items = [
+      ...this.normalizedAreaCoverageItems(area),
+      ...streetNames.map((streetName) => this.createStreetCoverageItem(streetName))
+    ];
+    this.areaStreetSectionsExpanded[area.id] = true;
+    this.replaceAreaCoverageItems(area.id, items);
+    void this.mapAreaFromStreets(area.id, 'new');
+    this.newAreaStreetInputs[area.id] = '';
+    this.clearAreaStreetPreview(area.id);
+  }
+
+  addAreaDrawnCoverageItem(area: LitterPickArea): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const items = [
+      ...this.normalizedAreaCoverageItems(area),
+      this.createDrawnCoverageItem(`Drawn area ${this.normalizedAreaCoverageItems(area).length + 1}`)
+    ];
+    this.areaStreetSectionsExpanded[area.id] = true;
+    this.replaceAreaCoverageItems(area.id, items);
+    this.startCoverageItemDraw(area.id, items.length - 1);
+  }
+
+  updateAreaCoverageItemStreet(area: LitterPickArea, index: number): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    void this.mapAreaFromStreets(area.id, `street-${index}`);
+  }
+
+  toggleAreaCoverageItemEdit(area: LitterPickArea, index: number): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const polygonIndex = this.coverageItemPolygonIndex(area, index);
+    if (polygonIndex < 0) {
+      this.areaStreetLookupMessages[area.id] = 'Add coverage first, then edit the shape.';
+      return;
+    }
+
+    this.toggleAreaEdit(area.id, polygonIndex, 'street', index);
+  }
+
+  drawAreaCoverageItem(area: LitterPickArea, index: number): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    this.startCoverageItemDraw(area.id, index);
+  }
+
+  async focusAreaCoverageItem(area: LitterPickArea, index: number): Promise<void> {
+    const items = this.normalizedAreaCoverageItems(area);
+    const item = items[index];
+    if (!item) {
+      return;
+    }
+
+    this.activeAreaId = area.id;
+    if (item.polygon?.length) {
+      this.focusMapPoints(item.polygon);
+      this.areaStreetLookupMessages[area.id] = `Focused ${this.coverageItemDisplay(item, index)}.`;
+      return;
+    }
+
+    const streetName = item.streetName?.trim();
+    if (!streetName) {
+      return;
+    }
+
+    const token = (this.areaStreetLookupTokens[area.id] || 0) + 1;
+    this.areaStreetLookupTokens[area.id] = token;
+    const operationId = `focus-${token}`;
+    this.setAreaStreetLookupBusy(area.id, `street-${index}`, operationId);
+    this.areaStreetLookupMessages[area.id] = 'Finding street...';
+
+    try {
+      const result = await this.findHethersettStreet(streetName);
+      if (this.areaStreetLookupTokens[area.id] !== token) {
+        return;
+      }
+
+      if (!result) {
+        this.areaStreetLookupMessages[area.id] = 'No matching Hethersett street found.';
+        return;
+      }
+
+      const polygons = this.streetSearchResultCoveragePolygons(result);
+      if (polygons.length) {
+        this.areaStreetPreviewPolygons[area.id] = polygons;
+        this.focusMapPoints(polygons[0]);
+      } else {
+        this.focusStreetSearchResult(result);
+      }
+      this.areaStreetLookupMessages[area.id] = `Focused ${this.streetSearchLabel(result, streetName)}.`;
+    } catch {
+      if (this.areaStreetLookupTokens[area.id] === token) {
+        this.areaStreetLookupMessages[area.id] = 'Street focus is unavailable right now.';
+      }
+    } finally {
+      this.clearAreaStreetLookupBusy(area.id, operationId);
+    }
+  }
+
+  removeAreaCoverageItem(area: LitterPickArea, index: number): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const items = [...this.normalizedAreaCoverageItems(area)];
+    if (index < 0 || index >= items.length) {
+      return;
+    }
+
+    if (this.editingAreaId === area.id && this.editingAreaControlMode === 'street') {
+      this.setLitterPickMapMode('pan');
+    }
+    items.splice(index, 1);
+    this.clearAreaStreetPreview(area.id);
+    if (!items.length) {
+      this.areaStreetSectionsExpanded[area.id] = true;
+    }
+    this.replaceAreaCoverageItems(area.id, items);
+  }
+
+  trackByCoverageItem(index: number, item: LitterPickCoverageItem): string {
+    return item.id || String(index);
+  }
+
+  trackByArea(_index: number, area: LitterPickArea): string {
+    return area.id;
+  }
+
+  trackByMapTile(_index: number, tile: MapTile): string {
+    return tile.key;
+  }
+
+  trackByIndex(index: number): number {
+    return index;
+  }
+
+  isEditingAreaPolygon(areaId: string, polygonIndex: number): boolean {
+    return this.editingAreaId === areaId && this.editingAreaPolygonIndex === polygonIndex && this.litterPickMapMode === 'edit';
+  }
+
+  isEditingAreaStreetCoverage(area: LitterPickArea, streetIndex: number): boolean {
+    return (
+      this.editingAreaId === area.id &&
+      this.editingAreaControlMode === 'street' &&
+      this.editingAreaStreetIndex === streetIndex &&
+      this.litterPickMapMode === 'edit'
+    );
+  }
+
+  isDrawingAreaCoverageItem(area: LitterPickArea, itemIndex: number): boolean {
+    return this.drawingAreaId === area.id && this.drawingCoverageItemIndex === itemIndex && this.litterPickMapMode === 'draw';
+  }
+
+  streetPreviewPolygonsFor(area: LitterPickArea): MapPoint[][] {
+    return this.areaStreetPreviewPolygons[area.id] || [];
+  }
+
+  isAreaStreetLookupBusy(areaId: string, fieldKey: string): boolean {
+    return Boolean(this.areaStreetLookupBusy[areaId] && this.areaStreetLookupFields[areaId] === fieldKey);
   }
 
   hasAvailableTeamSticker(): boolean {
@@ -1108,6 +2021,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.panState = undefined;
     this.areaEditDrag = undefined;
     this.editingAreaId = null;
+    this.editingAreaPolygonIndex = null;
+    this.editingAreaControlMode = 'polygon';
+    this.editingAreaStreetIndex = null;
+    this.drawingAreaId = null;
+    this.drawingCoverageItemIndex = null;
   }
 
   clearMeetingPointCoordinates(target: LitterPickEvent): void {
@@ -1281,6 +2199,22 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
+    if (this.drawingAreaId) {
+      const areaId = this.drawingAreaId;
+      if (this.drawingCoverageItemIndex !== null) {
+        this.updateCoverageItemPolygon(areaId, this.drawingCoverageItemIndex, points);
+        this.areaStreetLookupMessages[areaId] = 'Drawn coverage set for this item.';
+      } else {
+        this.updateAreaPoints(areaId, points);
+        this.areaStreetLookupMessages[areaId] = 'Drawn coverage set for this team.';
+      }
+      this.activeAreaId = areaId;
+      this.drawingAreaId = null;
+      this.drawingCoverageItemIndex = null;
+      this.litterPickMapMode = 'pan';
+      return;
+    }
+
     const bounds = this.areaBounds(points);
     const sticker = this.randomAvailableSticker(this.draftLitterPickEvent);
     if (!sticker) {
@@ -1302,11 +2236,14 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       stickerStroke: sticker.stroke,
       bags: 0,
       volunteers: 0,
+      coverageItems: [],
+      streetNames: [],
+      streets: '',
       notes: ''
     };
     this.draftLitterPickEvent.areas = [...this.draftLitterPickEvent.areas, newArea];
     this.activeAreaId = newArea.id;
-    this.litterPickMapMode = 'pan';
+    this.setLitterPickMapMode('pan');
   }
 
   beginLitterPickMapPan(event: PointerEvent): void {
@@ -1314,9 +2251,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
+    this.cancelPendingPanAnimation();
     event.currentTarget.setPointerCapture(event.pointerId);
     this.dragStart = null;
     this.draftAreaPoints = [];
+    this.pendingPanPosition = undefined;
     this.panState = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1330,8 +2269,28 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
-    const dx = event.clientX - this.panState.startX;
-    const dy = event.clientY - this.panState.startY;
+    this.pendingPanPosition = { clientX: event.clientX, clientY: event.clientY };
+    if (this.panAnimationFrame !== null) {
+      return;
+    }
+
+    this.panAnimationFrame = requestAnimationFrame(() => {
+      this.panAnimationFrame = null;
+      const position = this.pendingPanPosition;
+      this.pendingPanPosition = undefined;
+      if (position) {
+        this.applyLitterPickMapPan(position.clientX, position.clientY);
+      }
+    });
+  }
+
+  private applyLitterPickMapPan(clientX: number, clientY: number): void {
+    if (!this.panState) {
+      return;
+    }
+
+    const dx = clientX - this.panState.startX;
+    const dy = clientY - this.panState.startY;
     const nextCenter = this.pixelToLatLng(
       this.panState.startCenter.x - dx,
       this.panState.startCenter.y - dy,
@@ -1346,6 +2305,13 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
+    this.cancelPendingPanAnimation();
+    const position = this.pendingPanPosition;
+    this.pendingPanPosition = undefined;
+    if (position) {
+      this.applyLitterPickMapPan(position.clientX, position.clientY);
+    }
+
     const map = event.currentTarget as HTMLElement;
     if (map.hasPointerCapture(event.pointerId)) {
       map.releasePointerCapture(event.pointerId);
@@ -1353,11 +2319,25 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.panState = undefined;
   }
 
+  private cancelPendingPanAnimation(): void {
+    if (this.panAnimationFrame !== null) {
+      cancelAnimationFrame(this.panAnimationFrame);
+      this.panAnimationFrame = null;
+    }
+  }
+
   cancelAreaDraw(): void {
     this.dragStart = null;
     this.draftAreaPoints = [];
+    this.drawingAreaId = null;
+    this.drawingCoverageItemIndex = null;
+    this.cancelPendingPanAnimation();
+    this.pendingPanPosition = undefined;
     this.panState = undefined;
     this.areaEditDrag = undefined;
+    if (this.litterPickMapMode === 'draw') {
+      this.litterPickMapMode = 'pan';
+    }
   }
 
   selectArea(areaId: string): void {
@@ -1365,12 +2345,31 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.scrollSelectedAreaIntoView(areaId);
   }
 
-  toggleAreaEdit(areaId: string): void {
+  toggleAreaEdit(
+    areaId: string,
+    polygonIndex = 0,
+    controlMode: AreaEditControlMode = 'polygon',
+    streetIndex: number | null = null
+  ): void {
     if (!this.draftLitterPickEvent || this.draftLitterPickEvent.status === 'closed') {
       return;
     }
 
-    if (this.editingAreaId === areaId) {
+    const area = this.draftLitterPickEvent.areas.find((item) => item.id === areaId);
+    if (!area || !this.areaCanEditMapCoverage(area)) {
+      return;
+    }
+
+    const editablePolygons = this.areaCoveragePolygons(area);
+    const nextPolygonIndex = this.clampPolygonIndex(polygonIndex, editablePolygons);
+    const nextStreetIndex = controlMode === 'street' ? streetIndex : null;
+
+    if (
+      this.editingAreaId === areaId &&
+      this.editingAreaPolygonIndex === nextPolygonIndex &&
+      this.editingAreaControlMode === controlMode &&
+      this.editingAreaStreetIndex === nextStreetIndex
+    ) {
       this.setLitterPickMapMode('pan');
       return;
     }
@@ -1381,11 +2380,19 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
     this.activeAreaId = areaId;
     this.editingAreaId = areaId;
+    this.editingAreaPolygonIndex = nextPolygonIndex;
+    this.editingAreaControlMode = controlMode;
+    this.editingAreaStreetIndex = nextStreetIndex;
+    this.drawingAreaId = null;
     this.litterPickMapMode = 'edit';
     this.dragStart = null;
     this.draftAreaPoints = [];
     this.panState = undefined;
     this.areaEditDrag = undefined;
+    this.areaStreetLookupMessages[areaId] =
+      controlMode === 'street'
+        ? 'Drag one of the four handles to adjust this street coverage shape.'
+        : 'Drag the map handles to adjust this coverage shape.';
     this.scrollSelectedAreaIntoView(areaId);
   }
 
@@ -1409,6 +2416,16 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     if (this.editingAreaId === areaId) {
       this.setLitterPickMapMode('pan');
     }
+    if (this.drawingAreaId === areaId) {
+      this.setLitterPickMapMode('pan');
+    }
+    delete this.newAreaStreetInputs[areaId];
+    delete this.areaStreetLookupMessages[areaId];
+    this.clearAreaStreetLookupBusy(areaId);
+    clearTimeout(this.areaStreetLookupTimers[areaId]);
+    delete this.areaStreetLookupTimers[areaId];
+    delete this.areaStreetLookupTokens[areaId];
+    this.clearAreaStreetPreview(areaId);
   }
 
   totalBags(event: LitterPickEvent): number {
@@ -1440,8 +2457,100 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     return Math.round((covered / this.coverageSamplePoints.length) * 100);
   }
 
-  areaPolygonPointsAttribute(area: LitterPickArea): string {
-    return this.areaPoints(area)
+  areaHasMapCoverage(area: LitterPickArea): boolean {
+    return this.areaCoveragePolygons(area).length > 0;
+  }
+
+  areaCanEditMapCoverage(area: LitterPickArea): boolean {
+    return this.areaCoveragePolygons(area).length > 0;
+  }
+
+  areaCoveragePolygons(area: LitterPickArea): MapPoint[][] {
+    const itemPolygons = this.coverageItemPolygons(this.normalizedAreaCoverageItems(area));
+    if (itemPolygons.length) {
+      return itemPolygons;
+    }
+
+    const generatedPolygons = (area.coveragePolygons || [])
+      .map((polygon) => this.sanitizeAreaPoints(polygon || []))
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+    if (generatedPolygons.length) {
+      return generatedPolygons;
+    }
+
+    const points = this.areaPoints(area);
+    return points.length >= 3 ? [points] : [];
+  }
+
+  private editableAreaPolygon(area: LitterPickArea): MapPoint[] {
+    const polygons = this.areaCoveragePolygons(area);
+    if (!polygons.length) {
+      return [];
+    }
+
+    return polygons[this.activeAreaPolygonIndex(area, polygons)].map((point) => ({ ...point }));
+  }
+
+  private editableAreaControlPoints(area: LitterPickArea): MapPoint[] {
+    const polygon = this.editableAreaPolygon(area);
+    if (this.editingAreaId === area.id && this.editingAreaControlMode === 'street') {
+      return this.streetCoverageControlPoints(polygon);
+    }
+
+    return polygon;
+  }
+
+  private activeAreaPolygonIndex(area: LitterPickArea, polygons = this.areaCoveragePolygons(area)): number {
+    return this.editingAreaId === area.id
+      ? this.clampPolygonIndex(this.editingAreaPolygonIndex ?? 0, polygons)
+      : 0;
+  }
+
+  private clampPolygonIndex(index: number, polygons: MapPoint[][]): number {
+    return Math.max(0, Math.min(Math.trunc(index), Math.max(polygons.length - 1, 0)));
+  }
+
+  private streetCoveragePolygonIndex(area: LitterPickArea, streetIndex: number): number {
+    return this.clampPolygonIndex(streetIndex, this.areaCoveragePolygons(area));
+  }
+
+  private streetCoverageControlPoints(points: MapPoint[]): MapPoint[] {
+    if (points.length <= 4) {
+      return points.map((point) => ({ ...point }));
+    }
+
+    const candidates = [
+      this.extremePoint(points, (point) => point.x + point.y, 'min'),
+      this.extremePoint(points, (point) => point.x - point.y, 'max'),
+      this.extremePoint(points, (point) => point.x + point.y, 'max'),
+      this.extremePoint(points, (point) => point.x - point.y, 'min')
+    ];
+
+    const uniqueCandidates = this.uniqueMapPoints(candidates);
+    if (uniqueCandidates.length === 4) {
+      return candidates.map((point) => ({ ...point }));
+    }
+
+    return [0, 0.25, 0.5, 0.75].map((ratio) => {
+      const point = points[Math.floor(ratio * points.length)];
+      return { ...point };
+    });
+  }
+
+  private extremePoint(
+    points: MapPoint[],
+    score: (point: MapPoint) => number,
+    direction: 'min' | 'max'
+  ): MapPoint {
+    return points.reduce((best, point) => {
+      const value = score(point);
+      const bestValue = score(best);
+      return direction === 'min' ? (value < bestValue ? point : best) : value > bestValue ? point : best;
+    }, points[0]);
+  }
+
+  mapPolygonPointsAttribute(points: MapPoint[]): string {
+    return points
       .map((point) => this.boundaryPointToMapPosition(point))
       .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
       .join(' ');
@@ -1453,11 +2562,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   areaEditHandlePositions(area: LitterPickArea): MapPoint[] {
-    return this.areaPoints(area).map((point) => this.boundaryPointToMapPosition(point));
+    return this.editableAreaControlPoints(area).map((point) => this.boundaryPointToMapPosition(point));
   }
 
   areaMoveHandlePosition(area: LitterPickArea): MapPoint {
-    return this.boundaryPointToMapPosition(this.areaCentroid(area));
+    return this.boundaryPointToMapPosition(this.averagePoint(this.editableAreaPolygon(area)));
   }
 
   meetingPointMarkerTransform(event: LitterPickEvent | null): string {
@@ -1718,23 +2827,27 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
     const rankByAreaId = new Map(leaderboard.map((row) => [row.area.id, row.rank]));
     event.areas.forEach((area) => {
-      const points = this.areaPoints(area).map((point) => toCanvas(this.boundaryPointToLatLng(point)));
-      if (points.length < 3) {
+      const polygons = this.areaCoveragePolygons(area).map((polygon) =>
+        polygon.map((point) => toCanvas(this.boundaryPointToLatLng(point)))
+      );
+      if (!polygons.length) {
         return;
       }
 
-      context.save();
-      context.globalAlpha = 0.62;
-      drawPath(points);
-      context.fillStyle = area.stickerTint || '#f7faf6';
-      context.fill();
-      context.restore();
-      context.strokeStyle = area.stickerStroke || '#8b5f3d';
-      context.lineWidth = 4;
-      context.setLineDash([10, 7]);
-      drawPath(points);
-      context.stroke();
-      context.setLineDash([]);
+      polygons.forEach((points) => {
+        context.save();
+        context.globalAlpha = 0.62;
+        drawPath(points);
+        context.fillStyle = area.stickerTint || '#f7faf6';
+        context.fill();
+        context.restore();
+        context.strokeStyle = area.stickerStroke || '#8b5f3d';
+        context.lineWidth = 4;
+        context.setLineDash([10, 7]);
+        drawPath(points);
+        context.stroke();
+        context.setLineDash([]);
+      });
 
       const centroid = toCanvas(this.boundaryPointToLatLng(this.areaCentroid(area)));
       context.beginPath();
@@ -1861,12 +2974,14 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
     const rankByAreaId = new Map(leaderboard.map((row) => [row.area.id, row.rank]));
     event.areas.forEach((area) => {
-      const points = this.areaPoints(area);
-      if (points.length < 3) {
+      const polygons = this.areaCoveragePolygons(area);
+      if (!polygons.length) {
         return;
       }
 
-      this.addPdfPolygon(commands, points, rect, area.stickerTint || '#edf3ea', area.stickerStroke || '#8b5f3d', 1);
+      polygons.forEach((points) => {
+        this.addPdfPolygon(commands, points, rect, area.stickerTint || '#edf3ea', area.stickerStroke || '#8b5f3d', 1);
+      });
       const centroid = this.pdfMapPoint(this.areaCentroid(area), rect);
       this.addPdfCircle(commands, centroid.x, centroid.y, 9, area.stickerColor || '#f2c94c', area.stickerStroke || '#123f2a', 0.8);
       const rank = String(rankByAreaId.get(area.id) || '');
@@ -2260,6 +3375,12 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.litterReportsService.loadReports().subscribe({
       next: (reports) => {
         this.reports = reports;
+        this.reportStateSaving = {};
+        this.reportDeleting = {};
+        const selectedReport = this.selectedReport;
+        if (this.selectedReportId && (!selectedReport || !this.reportMatchesFilter(selectedReport))) {
+          this.selectedReportId = null;
+        }
         this.reportsLoading = false;
       },
       error: () => {
@@ -2296,8 +3417,8 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.authService.loadUsers().subscribe({
       next: (users) => {
         this.users = users;
-        this.pendingUserRoles = users.reduce<Record<string, 'Admin' | 'Editor'>>((roles, user) => {
-          roles[user.id] = this.userRole(user) as 'Admin' | 'Editor';
+        this.pendingUserRoles = users.reduce<Record<string, UserRole>>((roles, user) => {
+          roles[user.id] = this.userRole(user);
           return roles;
         }, {});
         this.pendingUserDisabled = users.reduce<Record<string, boolean>>((states, user) => {
@@ -2342,8 +3463,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
           afterSave();
         }
       },
-      error: () => {
-        this.errorMessage = 'Unable to save changes. Check the server or password.';
+      error: (error) => {
+        this.errorMessage =
+          error?.status === 403 && !this.canDeleteContent
+            ? 'Editors can save event changes, but cannot delete events. Refresh the list and try again.'
+            : 'Unable to save changes. Check the server or password.';
       }
     });
   }
@@ -2362,8 +3486,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
           afterSave(events);
         }
       },
-      error: () => {
-        this.errorMessage = 'Unable to save litter pick events. Check the server or password.';
+      error: (error) => {
+        this.errorMessage =
+          error?.status === 403 && !this.canDeleteContent
+            ? 'Editors can save litter pick changes, but cannot delete litter pick events. Refresh the list and try again.'
+            : 'Unable to save litter pick events. Check the server or password.';
       }
     });
   }
@@ -2383,7 +3510,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       .subscribe({
         next: (updated) => {
           this.users = this.users.map((item) => (item.id === updated.id ? updated : item));
-          this.pendingUserRoles[updated.id] = this.userRole(updated) as 'Admin' | 'Editor';
+          this.pendingUserRoles[updated.id] = this.userRole(updated);
           this.statusMessage = `Updated ${updated.email}.`;
         },
         error: () => {
@@ -2392,13 +3519,17 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       });
   }
 
-  private emptyUserForm(): { email: string; displayName: string; password: string; role: 'Admin' | 'Editor' } {
+  private emptyUserForm(): { email: string; displayName: string; password: string; role: UserRole } {
     return {
       email: '',
       displayName: '',
       password: '',
-      role: 'Editor'
+      role: 'User'
     };
+  }
+
+  private isUserRole(role: string): role is UserRole {
+    return role === 'Admin' || role === 'Editor' || role === 'User';
   }
 
   private emptyEvent(): EventItem {
@@ -2572,16 +3703,30 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
             : this.randomStickerFrom(this.teamStickers.filter((item) => !usedStickerLabels.has(item.label))) ||
               this.stickerForIndex(index);
         usedStickerLabels.add(sticker.label);
+        const coverageItems = this.normalizedAreaCoverageItems(area);
+        const itemPolygons = this.coverageItemPolygons(coverageItems);
+        const streetNames = this.coverageItemStreetNames(coverageItems);
         return {
           ...area,
           label: this.teamLabel(area.label, sticker),
+          points: itemPolygons.length === 1 ? itemPolygons[0] : area.points?.map((point) => ({ ...point })),
+          coveragePolygons:
+            itemPolygons.length > 1
+              ? itemPolygons
+              : area.coveragePolygons?.map((polygon) => polygon.map((point) => ({ ...point }))),
+          coverageItems: coverageItems.map((item) => ({
+            ...item,
+            polygon: item.polygon?.map((point) => ({ ...point }))
+          })),
           stickerIcon: sticker.icon,
           stickerLabel: sticker.label,
           stickerColor: sticker.color,
           stickerTint: sticker.tint,
           stickerStroke: sticker.stroke,
           bags: this.safeNumber(area.bags),
-          volunteers: this.safeNumber(area.volunteers)
+          volunteers: this.safeNumber(area.volunteers),
+          streetNames,
+          streets: streetNames.join(', ')
         };
       })
     };
@@ -2606,25 +3751,23 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   private createBoundaryPoints(): MapPoint[] {
-    const minLat = Math.min(...HETHERSETT_BOUNDARY.map((point) => point.lat));
-    const maxLat = Math.max(...HETHERSETT_BOUNDARY.map((point) => point.lat));
-    const minLng = Math.min(...HETHERSETT_BOUNDARY.map((point) => point.lng));
-    const maxLng = Math.max(...HETHERSETT_BOUNDARY.map((point) => point.lng));
+    const bounds = this.boundaryBounds();
 
     return HETHERSETT_BOUNDARY.map((point) => ({
-      x: ((point.lng - minLng) / (maxLng - minLng)) * 100,
-      y: ((maxLat - point.lat) / (maxLat - minLat)) * 100
+      x: ((point.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100,
+      y: ((bounds.maxLat - point.lat) / (bounds.maxLat - bounds.minLat)) * 100
     }));
   }
 
   private createCoverageSamplePoints(): MapPoint[] {
     const points: MapPoint[] = [];
+    const bounds = this.boundaryPointBounds();
     const steps = 64;
     for (let row = 0; row < steps; row += 1) {
       for (let col = 0; col < steps; col += 1) {
         const point = {
-          x: ((col + 0.5) / steps) * 100,
-          y: ((row + 0.5) / steps) * 100
+          x: bounds.minX + ((col + 0.5) / steps) * (bounds.maxX - bounds.minX),
+          y: bounds.minY + ((row + 0.5) / steps) * (bounds.maxY - bounds.minY)
         };
         if (this.isPointInsideBoundary(point)) {
           points.push(point);
@@ -2632,6 +3775,23 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       }
     }
     return points;
+  }
+
+  private boundaryPointBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    return {
+      minX: Math.min(...this.mapBoundaryPoints.map((point) => point.x)),
+      maxX: Math.max(...this.mapBoundaryPoints.map((point) => point.x)),
+      minY: Math.min(...this.mapBoundaryPoints.map((point) => point.y)),
+      maxY: Math.max(...this.mapBoundaryPoints.map((point) => point.y))
+    };
+  }
+
+  private clampBoundaryMapPoint(point: MapPoint): MapPoint {
+    const bounds = this.boundaryPointBounds();
+    return {
+      x: this.clamp(point.x, bounds.minX, bounds.maxX),
+      y: this.clamp(point.y, bounds.minY, bounds.maxY)
+    };
   }
 
   private mapPointerToBoundaryPoint(event: PointerEvent): MapPoint | null {
@@ -2688,7 +3848,14 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
 
     const area = this.draftLitterPickEvent.areas.find((item) => item.id === areaId);
     const startPoint = this.mapPointerToBoundaryPointFromViewport(event);
-    const originalPoints = area ? this.areaPoints(area) : [];
+    const polygons = area ? this.areaCoveragePolygons(area) : [];
+    const polygonIndex = this.clampPolygonIndex(this.editingAreaPolygonIndex ?? 0, polygons);
+    const controlMode = this.editingAreaControlMode;
+    const selectedPolygon = area && polygons[polygonIndex] ? polygons[polygonIndex].map((point) => ({ ...point })) : [];
+    const originalPoints =
+      kind === 'vertex' && controlMode === 'street'
+        ? this.streetCoverageControlPoints(selectedPolygon)
+        : selectedPolygon;
     if (!area || !startPoint || originalPoints.length < 3) {
       return;
     }
@@ -2697,6 +3864,8 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     this.areaEditDrag = {
       pointerId: event.pointerId,
       areaId,
+      polygonIndex,
+      controlMode,
       kind,
       startPoint,
       originalPoints,
@@ -2742,11 +3911,11 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     const nextPoints = state.originalPoints.map((current, index) =>
       index === state.pointIndex ? point : current
     );
-    if (this.polygonArea(nextPoints) < 1 || !this.isPolygonInsideBoundary(nextPoints)) {
+    if (this.polygonArea(nextPoints) < 0.2 || !this.isPolygonInsideBoundary(nextPoints)) {
       return;
     }
 
-    this.updateAreaPoints(state.areaId, nextPoints);
+    this.updateEditableAreaPolygon(state.areaId, state.polygonIndex, nextPoints);
   }
 
   private updateAreaMove(state: AreaEditDragState, point: MapPoint): void {
@@ -2763,7 +3932,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return;
     }
 
-    this.updateAreaPoints(state.areaId, nextPoints);
+    this.updateEditableAreaPolygon(state.areaId, state.polygonIndex, nextPoints);
   }
 
   private shouldPanLitterPickMap(event: PointerEvent): boolean {
@@ -2785,17 +3954,26 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
   }
 
   private isPointInsideArea(point: MapPoint, area: LitterPickArea): boolean {
-    const points = this.areaPoints(area);
-    if (points.length >= 3) {
-      return this.isPointInPolygon(point, points);
-    }
+    const polygons = this.areaCoveragePolygons(area);
+    return polygons.some((polygon) => this.isPointInPolygon(point, polygon));
+  }
 
+  private legacyAreaPoints(area: LitterPickArea): MapPoint[] {
     const x = area.x ?? 0;
     const y = area.y ?? 0;
     const width = area.width ?? 0;
     const height = area.height ?? 0;
 
-    return point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height;
+    if (!width || !height) {
+      return [];
+    }
+
+    return [
+      { x, y },
+      { x: x + width, y },
+      { x: x + width, y: y + height },
+      { x, y: y + height }
+    ];
   }
 
   private isPointInPolygon(point: MapPoint, polygon: MapPoint[]): boolean {
@@ -2820,21 +3998,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       return area.points.map((point) => ({ x: point.x, y: point.y }));
     }
 
-    const x = area.x ?? 0;
-    const y = area.y ?? 0;
-    const width = area.width ?? 0;
-    const height = area.height ?? 0;
-
-    if (!width || !height) {
-      return [];
-    }
-
-    return [
-      { x, y },
-      { x: x + width, y },
-      { x: x + width, y: y + height },
-      { x, y: y + height }
-    ];
+    return this.legacyAreaPoints(area);
   }
 
   private updateAreaPoints(areaId: string, points: MapPoint[]): void {
@@ -2849,6 +4013,7 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
         ? {
             ...area,
             points: sanitizedPoints,
+            coveragePolygons: undefined,
             x: bounds.x,
             y: bounds.y,
             width: bounds.width,
@@ -2858,15 +4023,128 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     );
   }
 
-  private sanitizeAreaPoints(points: MapPoint[]): MapPoint[] {
-    return points.map((point) => ({
-      x: Number(this.clamp(point.x, 0, 100).toFixed(2)),
-      y: Number(this.clamp(point.y, 0, 100).toFixed(2))
+  private updateCoverageItemPolygon(areaId: string, itemIndex: number, points: MapPoint[]): void {
+    if (!this.draftLitterPickEvent) {
+      return;
+    }
+
+    const area = this.draftLitterPickEvent.areas.find((item) => item.id === areaId);
+    if (!area) {
+      return;
+    }
+
+    const items = this.normalizedAreaCoverageItems(area).map((item) => ({
+      ...item,
+      polygon: item.polygon?.map((point) => ({ ...point }))
     }));
+    if (!items[itemIndex]) {
+      return;
+    }
+
+    const sanitizedPoints = this.sanitizeAreaPoints(points);
+    if (sanitizedPoints.length < 3 || this.polygonArea(sanitizedPoints) < 0.2) {
+      return;
+    }
+
+    items[itemIndex] = {
+      ...items[itemIndex],
+      polygon: sanitizedPoints
+    };
+    this.replaceAreaCoverageItems(areaId, items);
+  }
+
+  private updateEditableAreaPolygon(areaId: string, polygonIndex: number, points: MapPoint[]): void {
+    if (!this.draftLitterPickEvent) {
+      return;
+    }
+
+    const area = this.draftLitterPickEvent.areas.find((item) => item.id === areaId);
+    if (!area) {
+      return;
+    }
+
+    const currentPolygons = this.areaCoveragePolygons(area);
+    if (!currentPolygons.length) {
+      return;
+    }
+
+    const safeIndex = this.clampPolygonIndex(polygonIndex, currentPolygons);
+    const sanitizedPoints = this.sanitizeAreaPoints(points);
+    if (sanitizedPoints.length < 3 || this.polygonArea(sanitizedPoints) < 0.2) {
+      return;
+    }
+
+    if (this.editingAreaControlMode === 'street' && this.editingAreaStreetIndex !== null) {
+      this.updateCoverageItemPolygon(areaId, this.editingAreaStreetIndex, sanitizedPoints);
+      this.editingAreaPolygonIndex = safeIndex;
+      return;
+    }
+
+    const nextPolygons = currentPolygons.map((polygon, index) =>
+      index === safeIndex ? sanitizedPoints : polygon.map((point) => ({ ...point }))
+    );
+    const bounds = this.areaBounds(nextPolygons.flat());
+
+    this.draftLitterPickEvent.areas = this.draftLitterPickEvent.areas.map((current) =>
+      current.id === areaId
+        ? {
+            ...current,
+            points: nextPolygons.length === 1 ? sanitizedPoints : undefined,
+            coveragePolygons: nextPolygons.length > 1 ? nextPolygons : undefined,
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height
+          }
+        : current
+    );
+    this.editingAreaPolygonIndex = safeIndex;
+  }
+
+  private updateAreaCoveragePolygons(areaId: string, polygons: MapPoint[][]): void {
+    if (!this.draftLitterPickEvent) {
+      return;
+    }
+
+    const sanitizedPolygons = polygons
+      .map((polygon) => this.sanitizeAreaPoints(polygon))
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+    if (!sanitizedPolygons.length) {
+      return;
+    }
+
+    const primary = sanitizedPolygons[0];
+    const bounds = this.areaBounds(sanitizedPolygons.flat());
+    this.draftLitterPickEvent.areas = this.draftLitterPickEvent.areas.map((area) =>
+      area.id === areaId
+        ? {
+            ...area,
+            points: sanitizedPolygons.length === 1 ? primary : undefined,
+            coveragePolygons: sanitizedPolygons.length > 1 ? sanitizedPolygons : undefined,
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height
+        }
+        : area
+    );
+    if (this.editingAreaId === areaId) {
+      this.editingAreaPolygonIndex = this.clampPolygonIndex(this.editingAreaPolygonIndex ?? 0, sanitizedPolygons);
+    }
+  }
+
+  private sanitizeAreaPoints(points: MapPoint[]): MapPoint[] {
+    return points.map((point) => {
+      const clipped = this.clampCoveragePoint(point);
+      return {
+        x: Number(clipped.x.toFixed(2)),
+        y: Number(clipped.y.toFixed(2))
+      };
+    });
   }
 
   private areaCentroid(area: LitterPickArea): MapPoint {
-    const points = this.areaPoints(area);
+    const points = this.areaCoveragePolygons(area).flat();
     if (!points.length) {
       return { x: 50, y: 50 };
     }
@@ -2889,9 +4167,10 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     const result: MapPoint[] = [];
 
     for (const point of points) {
+      const clippedPoint = this.clampBoundaryMapPoint(point);
       const clipped = {
-        x: Number(this.clamp(point.x, 0, 100).toFixed(2)),
-        y: Number(this.clamp(point.y, 0, 100).toFixed(2))
+        x: Number(clippedPoint.x.toFixed(2)),
+        y: Number(clippedPoint.y.toFixed(2))
       };
       const previous = result[result.length - 1];
       if (!previous || this.distanceBetweenPoints(previous, clipped) >= 0.35) {
@@ -2914,6 +4193,49 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
       width: Number((maxX - minX).toFixed(2)),
       height: Number((maxY - minY).toFixed(2))
     };
+  }
+
+  private focusMapPoints(points: MapPoint[]): void {
+    if (!points.length) {
+      return;
+    }
+
+    const coordinates = points.map((point) => this.boundaryPointToLatLng(point));
+    this.focusLatLngBounds({
+      north: Math.max(...coordinates.map((point) => point.lat)),
+      south: Math.min(...coordinates.map((point) => point.lat)),
+      east: Math.max(...coordinates.map((point) => point.lng)),
+      west: Math.min(...coordinates.map((point) => point.lng))
+    });
+  }
+
+  private focusLatLngBounds(bounds: { north: number; south: number; east: number; west: number }): void {
+    this.cancelPendingPanAnimation();
+    this.pendingPanPosition = undefined;
+    this.panState = undefined;
+    this.litterPickCenterLat = (bounds.north + bounds.south) / 2;
+    this.litterPickCenterLng = (bounds.east + bounds.west) / 2;
+    this.litterPickZoom = this.mapZoomForLatLngBounds(bounds, 15.6, 17.6);
+  }
+
+  private mapZoomForLatLngBounds(
+    bounds: { north: number; south: number; east: number; west: number },
+    minZoom = 15.2,
+    maxZoom = 17.2
+  ): number {
+    const fitWidth = Math.max(this.litterPickViewportWidth * 0.62, 220);
+    const fitHeight = Math.max(this.litterPickViewportHeight * 0.62, 180);
+    for (let zoom = maxZoom; zoom >= minZoom; zoom -= 0.25) {
+      const northWest = this.latLngToPixel(bounds.north, bounds.west, zoom);
+      const southEast = this.latLngToPixel(bounds.south, bounds.east, zoom);
+      const width = Math.abs(southEast.x - northWest.x);
+      const height = Math.abs(southEast.y - northWest.y);
+      if (width <= fitWidth && height <= fitHeight) {
+        return this.clamp(zoom, minZoom, maxZoom);
+      }
+    }
+
+    return minZoom;
   }
 
   private polygonArea(points: MapPoint[]): number {
@@ -2957,12 +4279,13 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     };
   }
 
-  private latLngToBoundaryPoint(point: BoundaryCoordinate): MapPoint {
+  private latLngToBoundaryPoint(point: BoundaryCoordinate, clampToBoundary = true): MapPoint {
     const bounds = this.boundaryBounds();
-    return {
-      x: this.clamp(((point.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100, 0, 100),
-      y: this.clamp(((bounds.maxLat - point.lat) / (bounds.maxLat - bounds.minLat)) * 100, 0, 100)
+    const mapPoint = {
+      x: ((point.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100,
+      y: ((bounds.maxLat - point.lat) / (bounds.maxLat - bounds.minLat)) * 100
     };
+    return clampToBoundary ? this.clampBoundaryMapPoint(mapPoint) : mapPoint;
   }
 
   private updateLitterPickViewportSize(): void {
@@ -2994,13 +4317,1127 @@ export class AdminEventsComponent implements OnInit, AfterViewChecked, OnDestroy
     return { lat, lng };
   }
 
-  private boundaryBounds(): { minLat: number; maxLat: number; minLng: number; maxLng: number } {
+  private createStreetCoverageItem(streetName = ''): LitterPickCoverageItem {
+    const name = streetName.trim().replace(/\s+/g, ' ');
     return {
-      minLat: Math.min(...HETHERSETT_BOUNDARY.map((point) => point.lat)),
-      maxLat: Math.max(...HETHERSETT_BOUNDARY.map((point) => point.lat)),
-      minLng: Math.min(...HETHERSETT_BOUNDARY.map((point) => point.lng)),
-      maxLng: Math.max(...HETHERSETT_BOUNDARY.map((point) => point.lng))
+      id: this.createId('coverage'),
+      kind: 'street',
+      label: name,
+      streetName: name
     };
+  }
+
+  private createDrawnCoverageItem(label = ''): LitterPickCoverageItem {
+    return {
+      id: this.createId('coverage'),
+      kind: 'drawn',
+      label: label.trim().replace(/\s+/g, ' ') || 'Drawn area'
+    };
+  }
+
+  private normalizedAreaCoverageItems(area: LitterPickArea): LitterPickCoverageItem[] {
+    if (Array.isArray(area.coverageItems)) {
+      if (this.coverageItemsNeedNormalization(area.coverageItems)) {
+        area.coverageItems = this.normalizeCoverageItems(area.coverageItems);
+      }
+      return area.coverageItems;
+    }
+
+    const legacyPolygons = (area.coveragePolygons || [])
+      .map((polygon) => this.sanitizeAreaPoints(polygon || []))
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+    const streetNames = this.legacyAreaStreetNames(area);
+    if (!streetNames.length) {
+      return [];
+    }
+
+    area.coverageItems = streetNames.map((streetName, index) => ({
+      ...this.createStreetCoverageItem(streetName),
+      polygon: legacyPolygons[index]?.map((point) => ({ ...point }))
+    }));
+    return area.coverageItems;
+  }
+
+  private normalizeCoverageItems(items: LitterPickCoverageItem[]): LitterPickCoverageItem[] {
+    return items
+      .map((item, index) => {
+        const kind: LitterPickCoverageItem['kind'] = item.kind === 'drawn' ? 'drawn' : 'street';
+        const streetName = (item.streetName || (kind === 'street' ? item.label : '') || '').trim().replace(/\s+/g, ' ');
+        const label = (item.label || streetName || (kind === 'drawn' ? `Drawn area ${index + 1}` : '')).trim().replace(/\s+/g, ' ');
+        const polygon = item.polygon ? this.sanitizeAreaPoints(item.polygon) : undefined;
+        const usablePolygon = polygon && polygon.length >= 3 && this.polygonArea(polygon) >= 0.2 ? polygon : undefined;
+
+        return {
+          id: item.id || this.createId('coverage'),
+          kind,
+          label,
+          streetName: kind === 'street' ? streetName : undefined,
+          polygon: usablePolygon
+        };
+      })
+      .filter((item) => item.kind === 'drawn' || Boolean(item.streetName || item.polygon));
+  }
+
+  private coverageItemsNeedNormalization(items: LitterPickCoverageItem[]): boolean {
+    return items.some((item) => {
+      const kind = item.kind === 'drawn' || item.kind === 'street';
+      const hasId = Boolean(item.id);
+      const hasStreetName = item.kind !== 'street' || Boolean(item.streetName?.trim());
+      const hasDrawnLabel = item.kind !== 'drawn' || Boolean(item.label?.trim());
+      const hasUsablePolygon =
+        !item.polygon ||
+        (item.polygon.length >= 3 &&
+          item.polygon.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+      return !kind || !hasId || !hasStreetName || !hasDrawnLabel || !hasUsablePolygon;
+    });
+  }
+
+  private coverageItemStreetNames(items: LitterPickCoverageItem[]): string[] {
+    return this.uniqueStreetNames(items.filter((item) => item.kind === 'street').map((item) => item.streetName || ''));
+  }
+
+  private coverageItemPolygons(items: LitterPickCoverageItem[]): MapPoint[][] {
+    return items
+      .map((item) => item.polygon || [])
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+  }
+
+  private coverageItemPolygonIndex(area: LitterPickArea, itemIndex: number): number {
+    const items = this.normalizedAreaCoverageItems(area);
+    if (!items[itemIndex]?.polygon) {
+      return -1;
+    }
+
+    let polygonIndex = 0;
+    for (let index = 0; index < itemIndex; index += 1) {
+      const polygon = items[index].polygon;
+      if (polygon && polygon.length >= 3 && this.polygonArea(polygon) >= 0.2) {
+        polygonIndex += 1;
+      }
+    }
+
+    return polygonIndex;
+  }
+
+  private replaceAreaCoverageItems(areaId: string, items: LitterPickCoverageItem[], syncPolygons = true): void {
+    if (!this.draftLitterPickEvent) {
+      return;
+    }
+
+    this.draftLitterPickEvent.areas = this.draftLitterPickEvent.areas.map((area) =>
+      area.id === areaId ? this.areaWithCoverageItems(area, items, syncPolygons) : area
+    );
+  }
+
+  private areaWithCoverageItems(
+    area: LitterPickArea,
+    items: LitterPickCoverageItem[],
+    syncPolygons = true
+  ): LitterPickArea {
+    const coverageItems = this.normalizeCoverageItems(items);
+    const streetNames = this.coverageItemStreetNames(coverageItems);
+    const polygons = this.coverageItemPolygons(coverageItems);
+    const bounds = polygons.length ? this.areaBounds(polygons.flat()) : null;
+
+    return {
+      ...area,
+      coverageItems,
+      streetNames,
+      streets: streetNames.join(', '),
+      ...(syncPolygons
+        ? {
+            points: polygons.length === 1 ? polygons[0] : undefined,
+            coveragePolygons: polygons.length > 1 ? polygons : undefined,
+            x: bounds?.x,
+            y: bounds?.y,
+            width: bounds?.width,
+            height: bounds?.height
+          }
+        : {})
+    };
+  }
+
+  private canEditAreaStreets(): boolean {
+    return Boolean(this.draftLitterPickEvent && this.isEditingLitterPick && this.draftLitterPickEvent.status !== 'closed');
+  }
+
+  private commitAreaStreetRows(area: LitterPickArea, rows: string[], fieldKey = 'new'): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const streetNames = this.parseStreetNames(rows.join('\n'));
+    area.streetNames = streetNames;
+    area.streets = streetNames.join(', ');
+    clearTimeout(this.areaStreetLookupTimers[area.id]);
+    this.clearAreaStreetPreview(area.id);
+
+    if (!streetNames.length) {
+      this.areaStreetLookupTokens[area.id] = (this.areaStreetLookupTokens[area.id] || 0) + 1;
+      this.areaStreetLookupMessages[area.id] = '';
+      this.clearAreaMapCoverage(area.id);
+      return;
+    }
+
+    this.areaStreetLookupMessages[area.id] =
+      streetNames.length > 1 ? `Mapping ${streetNames.length} streets...` : 'Mapping street...';
+    void this.mapAreaFromStreets(area.id, fieldKey);
+  }
+
+  private normalizedAreaStreetNames(area: LitterPickArea): string[] {
+    if (Array.isArray(area.coverageItems)) {
+      return this.coverageItemStreetNames(this.normalizedAreaCoverageItems(area));
+    }
+
+    return this.legacyAreaStreetNames(area);
+  }
+
+  private legacyAreaStreetNames(area: LitterPickArea): string[] {
+    if (Array.isArray(area.streetNames)) {
+      return this.uniqueStreetNames(area.streetNames);
+    }
+
+    return this.parseStreetNames(area.streets || '');
+  }
+
+  private scheduleAreaStreetPreview(areaId: string, value: string, fieldKey: string): void {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    clearTimeout(this.areaStreetPreviewTimers[areaId]);
+    const streetName = this.parseStreetNames(value)[0] || '';
+    if (streetName.length < 3) {
+      this.clearAreaStreetPreview(areaId, true);
+      this.clearAreaStreetLookupBusy(areaId);
+      return;
+    }
+
+    this.areaStreetLookupMessages[areaId] = 'Previewing street shortly...';
+    this.areaStreetPreviewTimers[areaId] = setTimeout(() => {
+      void this.previewAreaStreet(areaId, streetName, fieldKey);
+    }, 750);
+  }
+
+  private async previewAreaStreet(areaId: string, streetName: string, fieldKey: string): Promise<void> {
+    if (!this.canEditAreaStreets()) {
+      return;
+    }
+
+    const token = (this.areaStreetPreviewTokens[areaId] || 0) + 1;
+    this.areaStreetPreviewTokens[areaId] = token;
+    const operationId = `preview-${token}`;
+    this.setAreaStreetLookupBusy(areaId, fieldKey, operationId);
+    this.areaStreetLookupMessages[areaId] = 'Previewing street...';
+
+    try {
+      const result = await this.findHethersettStreet(streetName);
+      if (this.areaStreetPreviewTokens[areaId] !== token) {
+        return;
+      }
+
+      if (!result) {
+        this.clearAreaStreetPreview(areaId);
+        this.areaStreetLookupMessages[areaId] = 'No matching Hethersett street found yet.';
+        return;
+      }
+
+      const polygons = this.streetSearchResultCoveragePolygons(result);
+      if (!polygons.length) {
+        this.clearAreaStreetPreview(areaId);
+        this.areaStreetLookupMessages[areaId] = 'Found that street, but could not preview a usable area.';
+        return;
+      }
+
+      this.areaStreetPreviewPolygons[areaId] = polygons;
+      this.activeAreaId = areaId;
+      this.focusStreetSearchResult(result);
+      this.areaStreetLookupMessages[areaId] = `Previewing ${this.streetSearchLabel(result, streetName)}. Add it or press Enter to save.`;
+    } catch {
+      if (this.areaStreetPreviewTokens[areaId] === token) {
+        this.clearAreaStreetPreview(areaId);
+        this.areaStreetLookupMessages[areaId] = 'Street preview is unavailable right now.';
+      }
+    } finally {
+      this.clearAreaStreetLookupBusy(areaId, operationId);
+    }
+  }
+
+  private clearAreaStreetPreview(areaId: string, clearMessage = false): void {
+    clearTimeout(this.areaStreetPreviewTimers[areaId]);
+    delete this.areaStreetPreviewTimers[areaId];
+    delete this.areaStreetPreviewPolygons[areaId];
+    this.areaStreetPreviewTokens[areaId] = (this.areaStreetPreviewTokens[areaId] || 0) + 1;
+    if (clearMessage) {
+      this.areaStreetLookupMessages[areaId] = '';
+    }
+  }
+
+  private setAreaStreetLookupBusy(areaId: string, fieldKey: string, operationId: string): void {
+    this.areaStreetLookupBusy[areaId] = true;
+    this.areaStreetLookupFields[areaId] = fieldKey;
+    this.areaStreetLookupOperations[areaId] = operationId;
+  }
+
+  private clearAreaStreetLookupBusy(areaId: string, operationId?: string): void {
+    if (operationId && this.areaStreetLookupOperations[areaId] !== operationId) {
+      return;
+    }
+
+    delete this.areaStreetLookupBusy[areaId];
+    delete this.areaStreetLookupFields[areaId];
+    delete this.areaStreetLookupOperations[areaId];
+  }
+
+  private clearAreaMapCoverage(areaId: string): void {
+    if (!this.draftLitterPickEvent) {
+      return;
+    }
+
+    this.clearAreaStreetPreview(areaId);
+    this.clearAreaStreetLookupBusy(areaId);
+    this.draftLitterPickEvent.areas = this.draftLitterPickEvent.areas.map((area) =>
+      area.id === areaId
+        ? {
+            ...area,
+            points: undefined,
+            coveragePolygons: undefined,
+            x: undefined,
+            y: undefined,
+            width: undefined,
+            height: undefined
+          }
+        : area
+    );
+
+    if (this.editingAreaId === areaId || this.drawingAreaId === areaId) {
+      this.setLitterPickMapMode('pan');
+    }
+  }
+
+  private async mapAreaFromStreets(areaId: string, fieldKey = 'new'): Promise<void> {
+    const area = this.draftLitterPickEvent?.areas.find((item) => item.id === areaId);
+    if (!area) {
+      return;
+    }
+
+    const coverageItems = this.normalizedAreaCoverageItems(area).map((item) => ({
+      ...item,
+      polygon: item.polygon?.map((point) => ({ ...point }))
+    }));
+    const streetEntries = coverageItems
+      .map((item, index) => ({ item, index, streetName: item.streetName?.trim() || '' }))
+      .filter((entry) => entry.item.kind === 'street' && entry.streetName);
+    if (!streetEntries.length) {
+      this.areaStreetLookupMessages[areaId] = '';
+      this.clearAreaMapCoverage(areaId);
+      return;
+    }
+
+    const token = (this.areaStreetLookupTokens[areaId] || 0) + 1;
+    this.areaStreetLookupTokens[areaId] = token;
+    const operationId = `map-${token}`;
+    this.setAreaStreetLookupBusy(areaId, fieldKey, operationId);
+    this.areaStreetLookupMessages[areaId] =
+      streetEntries.length > 1 ? `Mapping ${streetEntries.length} streets...` : 'Mapping street...';
+
+    try {
+      let mappedCount = 0;
+      for (const [position, entry] of streetEntries.entries()) {
+        const result = await this.findHethersettStreet(entry.streetName);
+        if (result) {
+          const polygon = this.streetSearchResultCoveragePolygons(result)[0];
+          if (polygon) {
+            coverageItems[entry.index] = {
+              ...coverageItems[entry.index],
+              label: entry.streetName,
+              streetName: entry.streetName,
+              polygon
+            };
+            mappedCount += 1;
+          }
+        }
+
+        if (position < streetEntries.length - 1) {
+          await this.sleep(1100);
+        }
+      }
+
+      if (this.areaStreetLookupTokens[areaId] !== token) {
+        return;
+      }
+
+      if (!mappedCount) {
+        this.areaStreetLookupMessages[areaId] = 'No matching Hethersett streets found.';
+        return;
+      }
+
+      this.replaceAreaCoverageItems(areaId, coverageItems);
+      this.activeAreaId = areaId;
+      const mappedText =
+        mappedCount === streetEntries.length
+          ? `Mapped ${mappedCount} street${mappedCount === 1 ? '' : 's'} to this team area.`
+          : `Mapped ${mappedCount} of ${streetEntries.length} streets to this team area.`;
+      this.areaStreetLookupMessages[areaId] = mappedText;
+    } catch {
+      if (this.areaStreetLookupTokens[areaId] === token) {
+        this.areaStreetLookupMessages[areaId] = 'Street mapping is unavailable right now.';
+      }
+    } finally {
+      this.clearAreaStreetLookupBusy(areaId, operationId);
+    }
+  }
+
+  private parseStreetNames(value: string): string[] {
+    return this.uniqueStreetNames(value.split(/[\n;,]+/));
+  }
+
+  private uniqueStreetNames(values: string[]): string[] {
+    const names: string[] = [];
+    const seen = new Set<string>();
+
+    for (const value of values) {
+      const name = value.trim().replace(/\s+/g, ' ');
+      if (!name) {
+        continue;
+      }
+
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      names.push(name);
+      if (names.length >= 6) {
+        break;
+      }
+    }
+
+    return names;
+  }
+
+  private async findHethersettStreets(streetNames: string[]): Promise<StreetSearchResult[]> {
+    const results: StreetSearchResult[] = [];
+    for (const [index, streetName] of streetNames.entries()) {
+      const result = await this.findHethersettStreet(streetName);
+      if (result) {
+        results.push(result);
+      }
+      if (index < streetNames.length - 1) {
+        await this.sleep(1100);
+      }
+    }
+
+    return results;
+  }
+
+  private streetSearchResultsToCoveragePolygons(results: StreetSearchResult[]): MapPoint[][] {
+    return results.flatMap((result) => this.streetSearchResultCoveragePolygons(result));
+  }
+
+  private streetSearchResultCoveragePolygons(result: StreetSearchResult): MapPoint[][] {
+    const streetLines = this.streetSearchResultLines(result);
+    const combinedLine = this.combineStreetResultLines(streetLines);
+    const combinedPolygon = combinedLine.length ? this.bufferStreetLine(combinedLine, 2.2) : [];
+    const cleanedCombinedPolygon = this.simplifyCoveragePolygon(this.cleanStreetCoveragePolygon(combinedPolygon));
+    if (cleanedCombinedPolygon.length >= 3 && this.polygonArea(cleanedCombinedPolygon) >= 0.2) {
+      return [cleanedCombinedPolygon];
+    }
+
+    const linePolygons = streetLines
+      .map((line) => this.simplifyCoveragePolygon(this.bufferStreetLine(line, 2.2)))
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+    if (linePolygons.length) {
+      const unionPolygon = this.simplifyCoveragePolygon(this.unionStreetCoveragePolygons(linePolygons));
+      return unionPolygon.length >= 3 && this.polygonArea(unionPolygon) >= 0.2 ? [unionPolygon] : linePolygons.slice(0, 1);
+    }
+
+    const fallback = this.streetSearchResultBoundaryPoints(result);
+    return fallback.length >= 3 ? [fallback] : [];
+  }
+
+  private combineStreetResultLines(lines: MapPoint[][]): MapPoint[] {
+    const points = this.uniqueMapPoints(lines.flat());
+    if (points.length < 2) {
+      return points;
+    }
+
+    const [start, end] = this.farthestMapPointPair(points);
+    const axis = {
+      x: end.x - start.x,
+      y: end.y - start.y
+    };
+    const axisLength = Math.hypot(axis.x, axis.y);
+    if (!axisLength) {
+      return [];
+    }
+
+    return this.uniqueSequentialMapPoints(
+      [...points].sort((a, b) => {
+        const aProjection = (a.x - start.x) * axis.x + (a.y - start.y) * axis.y;
+        const bProjection = (b.x - start.x) * axis.x + (b.y - start.y) * axis.y;
+        return aProjection - bProjection;
+      })
+    );
+  }
+
+  private farthestMapPointPair(points: MapPoint[]): [MapPoint, MapPoint] {
+    let pair: [MapPoint, MapPoint] = [points[0], points[1]];
+    let maxDistance = this.distanceBetweenPoints(pair[0], pair[1]);
+
+    for (let i = 0; i < points.length; i += 1) {
+      for (let j = i + 1; j < points.length; j += 1) {
+        const distance = this.distanceBetweenPoints(points[i], points[j]);
+        if (distance > maxDistance) {
+          maxDistance = distance;
+          pair = [points[i], points[j]];
+        }
+      }
+    }
+
+    return pair;
+  }
+
+  private unionStreetCoveragePolygons(polygons: MapPoint[][]): MapPoint[] {
+    const points = this.uniqueMapPoints(polygons.flat());
+    if (points.length < 3) {
+      return [];
+    }
+
+    return this.convexHull(points).map((point) => this.clampCoveragePoint(point));
+  }
+
+  private cleanStreetCoveragePolygon(points: MapPoint[]): MapPoint[] {
+    const polygon = this.uniqueSequentialMapPoints(points);
+    if (polygon.length < 3) {
+      return polygon;
+    }
+
+    if (!this.hasPolygonSelfIntersections(polygon)) {
+      return polygon;
+    }
+
+    const hull = this.convexHull(polygon);
+    return hull.length >= 3 ? hull.map((point) => this.clampCoveragePoint(point)) : polygon;
+  }
+
+  private simplifyCoveragePolygon(points: MapPoint[], maxPoints = 72): MapPoint[] {
+    const polygon = this.uniqueSequentialMapPoints(points);
+    if (polygon.length <= maxPoints) {
+      return polygon;
+    }
+
+    const step = polygon.length / maxPoints;
+    const reduced = Array.from({ length: maxPoints }, (_value, index) => polygon[Math.floor(index * step)]);
+    const simplified = this.uniqueSequentialMapPoints(reduced);
+    return simplified.length >= 3 && this.polygonArea(simplified) >= 0.2 ? simplified : polygon;
+  }
+
+  private hasPolygonSelfIntersections(points: MapPoint[]): boolean {
+    if (points.length < 4) {
+      return false;
+    }
+
+    for (let i = 0; i < points.length; i += 1) {
+      const firstStart = points[i];
+      const firstEnd = points[(i + 1) % points.length];
+      for (let j = i + 1; j < points.length; j += 1) {
+        const isAdjacent = Math.abs(i - j) <= 1 || (i === 0 && j === points.length - 1);
+        if (isAdjacent) {
+          continue;
+        }
+
+        const secondStart = points[j];
+        const secondEnd = points[(j + 1) % points.length];
+        if (this.segmentsIntersect(firstStart, firstEnd, secondStart, secondEnd)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private segmentsIntersect(a: MapPoint, b: MapPoint, c: MapPoint, d: MapPoint): boolean {
+    const epsilon = 0.0001;
+    const abC = this.crossProduct(a, b, c);
+    const abD = this.crossProduct(a, b, d);
+    const cdA = this.crossProduct(c, d, a);
+    const cdB = this.crossProduct(c, d, b);
+
+    if (Math.abs(abC) <= epsilon && this.isPointOnSegment(c, a, b)) {
+      return true;
+    }
+
+    if (Math.abs(abD) <= epsilon && this.isPointOnSegment(d, a, b)) {
+      return true;
+    }
+
+    if (Math.abs(cdA) <= epsilon && this.isPointOnSegment(a, c, d)) {
+      return true;
+    }
+
+    if (Math.abs(cdB) <= epsilon && this.isPointOnSegment(b, c, d)) {
+      return true;
+    }
+
+    return (abC > epsilon) !== (abD > epsilon) && (cdA > epsilon) !== (cdB > epsilon);
+  }
+
+  private isPointOnSegment(point: MapPoint, start: MapPoint, end: MapPoint): boolean {
+    const epsilon = 0.0001;
+    return (
+      point.x >= Math.min(start.x, end.x) - epsilon &&
+      point.x <= Math.max(start.x, end.x) + epsilon &&
+      point.y >= Math.min(start.y, end.y) - epsilon &&
+      point.y <= Math.max(start.y, end.y) + epsilon
+    );
+  }
+
+  private convexHull(points: MapPoint[]): MapPoint[] {
+    const sorted = this.uniqueMapPoints(points).sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+    if (sorted.length <= 3) {
+      return sorted;
+    }
+
+    const lower: MapPoint[] = [];
+    for (const point of sorted) {
+      while (lower.length >= 2 && this.crossProduct(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+        lower.pop();
+      }
+      lower.push(point);
+    }
+
+    const upper: MapPoint[] = [];
+    for (const point of [...sorted].reverse()) {
+      while (upper.length >= 2 && this.crossProduct(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+        upper.pop();
+      }
+      upper.push(point);
+    }
+
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  }
+
+  private crossProduct(origin: MapPoint, a: MapPoint, b: MapPoint): number {
+    return (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x);
+  }
+
+  private uniqueSequentialMapPoints(points: MapPoint[]): MapPoint[] {
+    const result: MapPoint[] = [];
+    for (const point of points) {
+      const previous = result[result.length - 1];
+      if (!previous || this.distanceBetweenPoints(previous, point) >= 0.01) {
+        result.push(point);
+      }
+    }
+
+    return result;
+  }
+
+  private streetSearchResultBoundaryPoints(result: StreetSearchResult): MapPoint[] {
+    const bounds = this.expandedStreetSearchResultBounds(result);
+    const coordinates = [
+      { lat: bounds.north, lng: bounds.west },
+      { lat: bounds.north, lng: bounds.east },
+      { lat: bounds.south, lng: bounds.east },
+      { lat: bounds.south, lng: bounds.west }
+    ];
+
+    return coordinates.map((coordinate) => this.streetSearchCoordinateToCoveragePoint(coordinate));
+  }
+
+  private streetSearchResultLines(result: StreetSearchResult): MapPoint[][] {
+    const lines = this.geoJsonToLines(result.geojson);
+    return lines
+      .map((line) =>
+        this.uniqueMapPoints(line.map((coordinate) => this.streetSearchCoordinateToCoveragePoint(coordinate)))
+      )
+      .filter((line) => line.length >= 2);
+  }
+
+  private geoJsonToLines(geojson: StreetGeoJson | undefined): BoundaryCoordinate[][] {
+    if (!geojson?.type) {
+      return [];
+    }
+
+    if (geojson.type === 'LineString') {
+      const line = this.coordinatesToLatLngLine(geojson.coordinates);
+      return line.length >= 2 ? [line] : [];
+    }
+
+    if (geojson.type === 'MultiLineString') {
+      return Array.isArray(geojson.coordinates)
+        ? geojson.coordinates
+            .map((line) => this.coordinatesToLatLngLine(line))
+            .filter((line) => line.length >= 2)
+        : [];
+    }
+
+    if (geojson.type === 'Polygon') {
+      const line = Array.isArray(geojson.coordinates) ? this.coordinatesToLatLngLine(geojson.coordinates[0]) : [];
+      return line.length >= 2 ? [line] : [];
+    }
+
+    if (geojson.type === 'MultiPolygon') {
+      return Array.isArray(geojson.coordinates)
+        ? geojson.coordinates
+            .map((polygon) => (Array.isArray(polygon) ? this.coordinatesToLatLngLine(polygon[0]) : []))
+            .filter((line) => line.length >= 2)
+        : [];
+    }
+
+    if (geojson.type === 'GeometryCollection') {
+      return (geojson.geometries || []).flatMap((geometry) => this.geoJsonToLines(geometry));
+    }
+
+    return [];
+  }
+
+  private coordinatesToLatLngLine(coordinates: unknown): BoundaryCoordinate[] {
+    if (!Array.isArray(coordinates)) {
+      return [];
+    }
+
+    return coordinates
+      .map((coordinate) => {
+        if (!Array.isArray(coordinate) || coordinate.length < 2) {
+          return null;
+        }
+
+        const lng = Number(coordinate[0]);
+        const lat = Number(coordinate[1]);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+      })
+      .filter((coordinate): coordinate is BoundaryCoordinate => Boolean(coordinate));
+  }
+
+  private bufferStreetLine(line: MapPoint[], radius: number): MapPoint[] {
+    if (line.length < 2) {
+      return this.expandPointToArea(line[0] || this.boundaryAnchorPoint(), radius);
+    }
+
+    const left: MapPoint[] = [];
+    const right: MapPoint[] = [];
+    line.forEach((point, index) => {
+      const normal = this.streetLineNormal(line, index);
+      left.push(this.clampCoveragePoint({ x: point.x + normal.x * radius, y: point.y + normal.y * radius }));
+      right.push(this.clampCoveragePoint({ x: point.x - normal.x * radius, y: point.y - normal.y * radius }));
+    });
+
+    const polygon = this.uniqueMapPoints([...left, ...right.reverse()]);
+    if (polygon.length >= 3 && this.polygonArea(polygon) >= 0.2) {
+      return polygon;
+    }
+
+    return this.expandPointToArea(this.averagePoint(line), radius);
+  }
+
+  private streetLineNormal(line: MapPoint[], index: number): MapPoint {
+    const previous = line[Math.max(0, index - 1)];
+    const current = line[index];
+    const next = line[Math.min(line.length - 1, index + 1)];
+    const firstNormal = this.segmentNormal(previous, current);
+    const secondNormal = this.segmentNormal(current, next);
+    const normal = {
+      x: firstNormal.x + secondNormal.x,
+      y: firstNormal.y + secondNormal.y
+    };
+    const length = Math.hypot(normal.x, normal.y);
+    return length > 0 ? { x: normal.x / length, y: normal.y / length } : firstNormal;
+  }
+
+  private segmentNormal(start: MapPoint, end: MapPoint): MapPoint {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    if (!length) {
+      return { x: 0, y: -1 };
+    }
+
+    return {
+      x: -dy / length,
+      y: dx / length
+    };
+  }
+
+  private expandedStreetSearchResultBounds(result: StreetSearchResult): {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+  } {
+    const lat = Number(result.lat);
+    const lng = Number(result.lon);
+    const bounds = this.streetSearchResultBounds(result) || {
+      north: lat,
+      south: lat,
+      east: lng,
+      west: lng
+    };
+    const latPadding = Math.max((bounds.north - bounds.south) * 0.18, 0.00035);
+    const lngPadding = Math.max((bounds.east - bounds.west) * 0.18, 0.00045);
+
+    return {
+      north: bounds.north + latPadding,
+      south: bounds.south - latPadding,
+      east: bounds.east + lngPadding,
+      west: bounds.west - lngPadding
+    };
+  }
+
+  private streetSearchCoordinateToCoveragePoint(coordinate: BoundaryCoordinate): MapPoint {
+    return this.clampCoveragePoint(this.latLngToBoundaryPoint(coordinate, false));
+  }
+
+  private clampCoveragePoint(point: MapPoint): MapPoint {
+    const bounds = this.coveragePointBounds();
+    return {
+      x: this.clamp(point.x, bounds.minX, bounds.maxX),
+      y: this.clamp(point.y, bounds.minY, bounds.maxY)
+    };
+  }
+
+  private coveragePointBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    const bounds = this.streetSearchBounds();
+    const corners = [
+      this.latLngToBoundaryPoint({ lat: bounds.north, lng: bounds.west }, false),
+      this.latLngToBoundaryPoint({ lat: bounds.north, lng: bounds.east }, false),
+      this.latLngToBoundaryPoint({ lat: bounds.south, lng: bounds.east }, false),
+      this.latLngToBoundaryPoint({ lat: bounds.south, lng: bounds.west }, false)
+    ];
+
+    return {
+      minX: Math.min(...corners.map((point) => point.x)),
+      maxX: Math.max(...corners.map((point) => point.x)),
+      minY: Math.min(...corners.map((point) => point.y)),
+      maxY: Math.max(...corners.map((point) => point.y))
+    };
+  }
+
+  private boundaryAnchorPoint(): MapPoint {
+    const average = this.averagePoint(this.mapBoundaryPoints);
+    return this.isPointInsideBoundary(average) ? average : { x: 50, y: 50 };
+  }
+
+  private uniqueMapPoints(points: MapPoint[]): MapPoint[] {
+    const seen = new Set<string>();
+    return points.filter((point) => {
+      const key = `${point.x.toFixed(2)}:${point.y.toFixed(2)}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private expandPointToArea(point: MapPoint, radius: number): MapPoint[] {
+    return [
+      { x: point.x - radius, y: point.y - radius },
+      { x: point.x + radius, y: point.y - radius },
+      { x: point.x + radius, y: point.y + radius },
+      { x: point.x - radius, y: point.y + radius }
+    ].map((candidate) => this.clampCoveragePoint(candidate));
+  }
+
+  private averagePoint(points: MapPoint[]): MapPoint {
+    if (!points.length) {
+      return { x: 50, y: 50 };
+    }
+
+    const total = points.reduce(
+      (sum, point) => ({
+        x: sum.x + point.x,
+        y: sum.y + point.y
+      }),
+      { x: 0, y: 0 }
+    );
+
+    return {
+      x: total.x / points.length,
+      y: total.y / points.length
+    };
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async findHethersettStreet(query: string): Promise<StreetSearchResult | null> {
+    const params = new URLSearchParams({
+      format: 'jsonv2',
+      q: `${query}, Hethersett, Norfolk, United Kingdom`,
+      addressdetails: '1',
+      polygon_geojson: '1',
+      countrycodes: 'gb',
+      limit: '20',
+      dedupe: '0',
+      bounded: '1',
+      viewbox: this.streetSearchViewBox()
+    });
+    const token = this.authService.token;
+    const response = await fetch(`/api/street-search?${params.toString()}`, {
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Street search failed.');
+    }
+
+    const results = (await response.json()) as unknown;
+    if (!Array.isArray(results)) {
+      return null;
+    }
+
+    const candidates = (results as StreetSearchResult[]).filter((result) => this.isStreetSearchResultInBounds(result));
+    if (!candidates.length) {
+      return null;
+    }
+
+    const roadLineMatches = candidates
+      .filter((result) => this.isRoadLikeStreetSearchResult(result))
+      .filter((result) => this.streetSearchResultLines(result).length > 0)
+      .filter((result) => this.streetSearchResultMatchesQuery(result, query));
+
+    if (roadLineMatches.length) {
+      const rankedRoads = this.sortStreetSearchResults(roadLineMatches, query);
+      const exactRoads = rankedRoads.filter((result) => this.streetSearchResultPrimaryNameMatches(result, query));
+      const selectedRoads = exactRoads.length ? exactRoads : rankedRoads.slice(0, 1);
+      return this.mergeStreetSearchResults(selectedRoads, query);
+    }
+
+    return this.sortStreetSearchResults(candidates, query)[0] || null;
+  }
+
+  private sortStreetSearchResults(results: StreetSearchResult[], query: string): StreetSearchResult[] {
+    return [...results].sort(
+      (a, b) => this.streetSearchResultScore(b, query) - this.streetSearchResultScore(a, query)
+    );
+  }
+
+  private streetSearchResultScore(result: StreetSearchResult, query: string): number {
+    const roadLike = this.isRoadLikeStreetSearchResult(result);
+    const lineCount = this.streetSearchResultLines(result).length;
+    const geoType = (result.geojson?.type || '').toLowerCase();
+    const category = this.streetSearchResultCategory(result);
+    const addresstype = (result.addresstype || '').toLowerCase();
+    const type = (result.type || '').toLowerCase();
+    let score = 0;
+
+    if (this.streetSearchResultPrimaryNameMatches(result, query)) {
+      score += 140;
+    } else if (this.streetSearchResultMatchesQuery(result, query)) {
+      score += 55;
+    }
+
+    if (roadLike) {
+      score += 95;
+    }
+
+    if (lineCount > 0) {
+      score += 85 + Math.min(this.streetSearchLineLength(result) * 2200, 70);
+    }
+
+    if (geoType === 'multilinestring' || geoType === 'geometrycollection') {
+      score += 18;
+    }
+
+    if (geoType === 'point' || lineCount === 0) {
+      score -= 90;
+    }
+
+    if (['building', 'amenity', 'shop', 'tourism', 'place'].includes(category)) {
+      score -= 55;
+    }
+
+    if (['house', 'building', 'amenity', 'postcode'].includes(addresstype) || type === 'house') {
+      score -= 70;
+    }
+
+    score += this.safeNumber(Number(result.importance)) * 8;
+    return score;
+  }
+
+  private isRoadLikeStreetSearchResult(result: StreetSearchResult): boolean {
+    const category = this.streetSearchResultCategory(result);
+    const type = (result.type || '').toLowerCase();
+    const addresstype = (result.addresstype || '').toLowerCase();
+    const roadTypes = new Set([
+      'road',
+      'residential',
+      'tertiary',
+      'secondary',
+      'primary',
+      'unclassified',
+      'service',
+      'living_street',
+      'pedestrian'
+    ]);
+
+    return category === 'highway' || addresstype === 'road' || roadTypes.has(type);
+  }
+
+  private streetSearchResultCategory(result: StreetSearchResult): string {
+    return (result.category || result.class || '').toLowerCase();
+  }
+
+  private streetSearchResultMatchesQuery(result: StreetSearchResult, query: string): boolean {
+    const normalizedQuery = this.normalizeStreetSearchName(query);
+    const displayName = this.normalizeStreetSearchName(result.display_name || '');
+    const primaryName = this.normalizeStreetSearchName(this.streetSearchPrimaryName(result));
+    return primaryName === normalizedQuery || primaryName.includes(normalizedQuery) || displayName.includes(normalizedQuery);
+  }
+
+  private streetSearchResultPrimaryNameMatches(result: StreetSearchResult, query: string): boolean {
+    return this.normalizeStreetSearchName(this.streetSearchPrimaryName(result)) === this.normalizeStreetSearchName(query);
+  }
+
+  private streetSearchPrimaryName(result: StreetSearchResult): string {
+    return result.name?.trim() || result.display_name?.split(',')[0]?.trim() || '';
+  }
+
+  private normalizeStreetSearchName(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  private streetSearchLineLength(result: StreetSearchResult): number {
+    return this.geoJsonToLines(result.geojson).reduce((total, line) => {
+      const length = line.reduce((lineTotal, point, index) => {
+        if (index === 0) {
+          return lineTotal;
+        }
+
+        const previous = line[index - 1];
+        return lineTotal + Math.hypot(point.lat - previous.lat, point.lng - previous.lng);
+      }, 0);
+      return total + length;
+    }, 0);
+  }
+
+  private mergeStreetSearchResults(results: StreetSearchResult[], query: string): StreetSearchResult {
+    if (results.length === 1) {
+      return results[0];
+    }
+
+    const geojsonResults = results.map((result) => result.geojson).filter((geojson): geojson is StreetGeoJson => Boolean(geojson));
+    const latValues = results.map((result) => Number(result.lat)).filter(Number.isFinite);
+    const lngValues = results.map((result) => Number(result.lon)).filter(Number.isFinite);
+    const bounds = results
+      .map((result) => this.streetSearchResultBounds(result))
+      .filter((item): item is { north: number; south: number; east: number; west: number } => Boolean(item));
+    const first = results[0];
+
+    return {
+      ...first,
+      lat: String(latValues.length ? latValues.reduce((sum, value) => sum + value, 0) / latValues.length : first.lat),
+      lon: String(lngValues.length ? lngValues.reduce((sum, value) => sum + value, 0) / lngValues.length : first.lon),
+      category: 'highway',
+      class: 'highway',
+      addresstype: 'road',
+      name: query,
+      display_name: `${query}, Hethersett, Norfolk, United Kingdom`,
+      boundingbox: bounds.length
+        ? [
+            Math.min(...bounds.map((bound) => bound.south)).toString(),
+            Math.max(...bounds.map((bound) => bound.north)).toString(),
+            Math.min(...bounds.map((bound) => bound.west)).toString(),
+            Math.max(...bounds.map((bound) => bound.east)).toString()
+          ]
+        : first.boundingbox,
+      geojson:
+        geojsonResults.length > 1
+          ? {
+              type: 'GeometryCollection',
+              geometries: geojsonResults
+            }
+          : geojsonResults[0]
+    };
+  }
+
+  private streetSearchZoomFor(result: StreetSearchResult): number {
+    const bounds = this.streetSearchResultBounds(result);
+    if (!bounds) {
+      return 16.7;
+    }
+
+    return this.mapZoomForLatLngBounds(bounds, 15.2, 17.2);
+  }
+
+  private focusStreetSearchResult(result: StreetSearchResult): void {
+    const lat = Number(result.lat);
+    const lng = Number(result.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return;
+    }
+
+    this.litterPickCenterLat = lat;
+    this.litterPickCenterLng = lng;
+    this.litterPickZoom = this.streetSearchZoomFor(result);
+    this.panState = undefined;
+  }
+
+  private streetSearchLabel(result: StreetSearchResult, fallback: string): string {
+    return result.display_name?.split(',')[0]?.trim() || fallback;
+  }
+
+  private streetSearchViewBox(): string {
+    const bounds = this.streetSearchBounds();
+    return [
+      bounds.west.toFixed(5),
+      bounds.north.toFixed(5),
+      bounds.east.toFixed(5),
+      bounds.south.toFixed(5)
+    ].join(',');
+  }
+
+  private streetSearchBounds(): { north: number; south: number; east: number; west: number } {
+    const bounds = this.boundaryBounds();
+    return {
+      north: bounds.maxLat + 0.025,
+      south: bounds.minLat - 0.025,
+      east: bounds.maxLng + 0.035,
+      west: bounds.minLng - 0.035
+    };
+  }
+
+  private isStreetSearchResultInBounds(result: StreetSearchResult): boolean {
+    const lat = Number(result.lat);
+    const lng = Number(result.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return false;
+    }
+
+    const bounds = this.streetSearchBounds();
+    return lat >= bounds.south && lat <= bounds.north && lng >= bounds.west && lng <= bounds.east;
+  }
+
+  private streetSearchResultBounds(
+    result: StreetSearchResult
+  ): { north: number; south: number; east: number; west: number } | null {
+    if (!result.boundingbox || result.boundingbox.length < 4) {
+      return null;
+    }
+
+    const [south, north, west, east] = result.boundingbox.map(Number);
+    if (![south, north, west, east].every(Number.isFinite) || south === north || west === east) {
+      return null;
+    }
+
+    return { north, south, east, west };
+  }
+
+  private boundaryBounds(): { minLat: number; maxLat: number; minLng: number; maxLng: number } {
+    return HETHERSETT_MAP_BOUNDS;
   }
 
   private isInteractiveTarget(target: EventTarget | null): boolean {

@@ -60,6 +60,26 @@ Useful commands:
 
 This is a user login service. If you need the API to start before anyone logs in, use a system LaunchDaemon instead.
 
+## Litter pick push reminders
+Signed-in users who choose "Count me in" can receive browser push reminders 1 day and 1 hour before a litter pick. Push reminders are optional and are disabled until VAPID keys are configured for the API.
+
+Generate a VAPID key pair with a standard Web Push tool, then add the values to the API environment file:
+```bash
+HHH_VAPID_PUBLIC_KEY='...'
+HHH_VAPID_PRIVATE_KEY='...'
+HHH_VAPID_SUBJECT='mailto:admin@example.com'
+```
+
+After restarting the API, supported browsers will ask users for notification permission the next time they count themselves in.
+
+To test delivery, sign in, choose "Count me in" on a litter pick, allow browser notifications, then click "Send test reminder". The button sends an immediate push notification to the signed-in user's saved browser subscription.
+
+If the browser does not show a permission prompt, check that the API has been restarted with the VAPID values loaded and that the site is being opened from HTTPS or localhost. Browser push will not work from a plain HTTP LAN address.
+
+On macOS, Safari browser notifications may still show the Safari compass icon in Notification Centre. Safari uses the browser as the notifying app for normal webpages. To get a branded app-style icon on macOS Sonoma or later, open the site in Safari, choose File > Add to Dock, then allow notifications from that web app instead of the normal Safari tab.
+
+If Chrome says the test push was displayed but no banner appears, check macOS System Settings > Notifications > Google Chrome. "Allow notifications" must be on and the alert style should be Banners or Alerts. Also check Focus/Do Not Disturb and Chrome's site setting for the current site.
+
 ## Deploy to a Mac mini on the local network
 If SSH is enabled on the Mac mini, one script can build the Angular client, publish the .NET API, copy the website into the nginx folder and restart the API LaunchAgent:
 ```bash

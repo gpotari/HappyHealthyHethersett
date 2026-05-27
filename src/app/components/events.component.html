@@ -35,8 +35,10 @@
           </button>
           <div class="event-card__body">
             <div class="event-card__header">
-              <p class="event-card__eyebrow">{{ eventTypeLabel(event) }}</p>
-              <h3 [id]="'event-' + i + '-title'">{{ event.title }}</h3>
+              <div>
+                <p class="event-card__eyebrow">{{ eventTypeLabel(event) }}</p>
+                <h3 [id]="'event-' + i + '-title'">{{ event.title }}</h3>
+              </div>
             </div>
 
             <dl class="event-card__details">
@@ -65,6 +67,54 @@
               <a class="btn btn--secondary" [href]="event.ctaHref">
                 {{ ctaLabel(event) }}
               </a>
+            </div>
+
+            <div class="event-card__history event-card__history--bottom" *ngIf="showCreatedMeta(event)" aria-label="Event history">
+              <button
+                class="event-card__history-avatar"
+                type="button"
+                tabindex="0"
+                [attr.title]="creatorHistoryLabel(event)"
+                [attr.aria-label]="creatorHistoryLabel(event)"
+                [attr.aria-expanded]="isHistoryPopoverOpen(i, 'created')"
+                [attr.aria-controls]="historyPopoverId(i, 'created')"
+                (click)="toggleHistoryPopover(i, 'created', $event)"
+              >
+                <img *ngIf="creatorAvatar(event); else eventCreatorInitials" [src]="creatorAvatar(event)" alt="" />
+                <ng-template #eventCreatorInitials>{{ creatorInitials(event) }}</ng-template>
+              </button>
+              <button
+                class="event-card__history-avatar event-card__history-avatar--edited"
+                *ngIf="showUpdaterAvatar(event)"
+                type="button"
+                tabindex="0"
+                [attr.title]="updaterHistoryLabel(event)"
+                [attr.aria-label]="updaterHistoryLabel(event)"
+                [attr.aria-expanded]="isHistoryPopoverOpen(i, 'edited')"
+                [attr.aria-controls]="historyPopoverId(i, 'edited')"
+                (click)="toggleHistoryPopover(i, 'edited', $event)"
+              >
+                <img *ngIf="updaterAvatar(event); else eventUpdaterInitials" [src]="updaterAvatar(event)" alt="" />
+                <ng-template #eventUpdaterInitials>{{ updaterInitials(event) }}</ng-template>
+              </button>
+              <div
+                class="event-card__history-popover"
+                *ngIf="isHistoryPopoverOpen(i, 'created')"
+                [id]="historyPopoverId(i, 'created')"
+                role="tooltip"
+                (click)="$event.stopPropagation()"
+              >
+                {{ creatorHistoryLabel(event) }}
+              </div>
+              <div
+                class="event-card__history-popover"
+                *ngIf="isHistoryPopoverOpen(i, 'edited')"
+                [id]="historyPopoverId(i, 'edited')"
+                role="tooltip"
+                (click)="$event.stopPropagation()"
+              >
+                {{ updaterHistoryLabel(event) }}
+              </div>
             </div>
           </div>
         </article>

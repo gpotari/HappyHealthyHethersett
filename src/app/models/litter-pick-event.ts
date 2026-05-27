@@ -1,11 +1,23 @@
 import { PhotoAttachment } from './photo-attachment';
+import { EventCreator } from './event-creator';
 
 export type LitterPickStatus = 'open' | 'closed';
+export type LitterPickCoverageItemKind = 'street' | 'drawn';
+
+export interface LitterPickCoverageItem {
+  id: string;
+  kind: LitterPickCoverageItemKind;
+  label?: string;
+  streetName?: string;
+  polygon?: Array<{ x: number; y: number }>;
+}
 
 export interface LitterPickArea {
   id: string;
   label: string;
   points?: Array<{ x: number; y: number }>;
+  coveragePolygons?: Array<Array<{ x: number; y: number }>>;
+  coverageItems?: LitterPickCoverageItem[];
   x?: number;
   y?: number;
   width?: number;
@@ -17,6 +29,8 @@ export interface LitterPickArea {
   stickerStroke?: string;
   bags: number;
   volunteers: number;
+  streetNames?: string[];
+  streets?: string;
   notes?: string;
 }
 
@@ -50,4 +64,6 @@ export interface LitterPickEvent {
   photos?: PhotoAttachment[];
   createdAt?: string;
   updatedAt?: string;
+  createdBy?: EventCreator;
+  updatedBy?: EventCreator;
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Concurrent;
 using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.Json;
@@ -15,6 +16,13 @@ namespace HappyHealthyHethersett.Api;
 public static class ApiRoutes
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly HttpClient NominatimHttpClient = CreateNominatimHttpClient();
+    private static readonly SemaphoreSlim NominatimRequestGate = new(1, 1);
+    private static readonly ConcurrentDictionary<string, NominatimCacheItem> NominatimSearchCache = new();
+    private static readonly TimeSpan NominatimCacheDuration = TimeSpan.FromHours(12);
+    private static readonly TimeSpan NominatimMinimumInterval = TimeSpan.FromMilliseconds(1100);
+    private static DateTimeOffset _lastNominatimRequestAt = DateTimeOffset.MinValue;
+    private const string HethersettStreetViewBox = "1.12900,52.62980,1.23240,52.56600";
     private const string CommunityEventPhotoOwner = "CommunityEvent";
     private const string FeedbackPhotoOwner = "FeedbackMessage";
     private const string LitterReportPhotoOwner = "LitterReport";
@@ -42,11 +50,11 @@ public static class ApiRoutes
         {
             try
             {
-                await authService.RegisterPendingUserAsync(request);
-                return Results.Accepted(value: new
+                await authService.RegisterUserAsync(request);
+                return Results.Created("/api/auth/register", new
                 {
                     ok = true,
-                    message = "Registration received. An admin must enable the account before sign in."
+                    message = "Registration complete. You can now sign in."
                 });
             }
             catch (InvalidOperationException error)
@@ -143,6 +151,130 @@ public static class ApiRoutes
             }
         }).RequireAuthorization();
 
+        app.MapGet("/api/notifications/config", (PushNotificationService pushNotifications) =>
+        {
+            return Results.Ok(new PushNotificationConfigDto(pushNotifications.IsConfigured, pushNotifications.PublicKey));
+        }).AllowAnonymous();
+
+        app.MapGet("/api/street-search", SearchStreetAsync).RequireAuthorization();
+
+        app.MapPost("/api/notifications/subscriptions", async (
+            PushSubscriptionRequest request,
+            AppDbContext db,
+            ClaimsPrincipal currentUser,
+            PushNotificationService pushNotifications) =>
+        {
+            if (!pushNotifications.IsConfigured)
+            {
+                return Results.BadRequest(new { error = "Push notifications are not configured." });
+            }
+
+            var currentUserId = CurrentUserId(currentUser);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var endpoint = Clean(request.Endpoint, 600);
+            var p256dh = Clean(request.Keys.P256dh, 256);
+            var auth = Clean(request.Keys.Auth, 128);
+            if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(p256dh) || string.IsNullOrWhiteSpace(auth))
+            {
+                return Results.BadRequest(new { error = "Invalid push subscription." });
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var subscription = await db.PushNotificationSubscriptions.SingleOrDefaultAsync(item => item.Endpoint == endpoint);
+            if (subscription is null)
+            {
+                subscription = new PushNotificationSubscriptionEntity
+                {
+                    Endpoint = endpoint,
+                    CreatedAt = now
+                };
+                await db.PushNotificationSubscriptions.AddAsync(subscription);
+            }
+
+            subscription.UserId = currentUserId.Value;
+            subscription.P256dh = p256dh;
+            subscription.Auth = auth;
+            subscription.ExpiresAt = request.ExpirationTime.HasValue
+                ? DateTimeOffset.FromUnixTimeMilliseconds(request.ExpirationTime.Value)
+                : null;
+            subscription.UpdatedAt = now;
+            subscription.LastError = null;
+            subscription.LastErrorAt = null;
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { ok = true });
+        }).RequireAuthorization();
+
+        app.MapPost("/api/notifications/test", async (
+            PushNotificationTestRequest request,
+            AppDbContext db,
+            ClaimsPrincipal currentUser,
+            PushNotificationService pushNotifications,
+            CancellationToken cancellationToken) =>
+        {
+            if (!pushNotifications.IsConfigured)
+            {
+                return Results.BadRequest(new { error = "Push notifications are not configured." });
+            }
+
+            var currentUserId = CurrentUserId(currentUser);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var endpoint = CleanOptional(request.Endpoint, 600);
+            var testId = CleanOptional(request.TestId, 80);
+            var query = db.PushNotificationSubscriptions
+                .Where(item => item.UserId == currentUserId.Value);
+            if (!string.IsNullOrWhiteSpace(endpoint))
+            {
+                query = query.Where(item => item.Endpoint == endpoint);
+            }
+
+            var subscriptions = await query
+                .OrderByDescending(item => item.UpdatedAt)
+                .ToListAsync(cancellationToken);
+            if (subscriptions.Count == 0)
+            {
+                return Results.BadRequest(new { error = "Turn on reminders in this browser, then try again." });
+            }
+
+            var sent = 0;
+            foreach (var subscription in subscriptions)
+            {
+                try
+                {
+                    await pushNotifications.SendTestNotificationAsync(subscription, testId, cancellationToken);
+                    subscription.LastError = null;
+                    subscription.LastErrorAt = null;
+                    sent += 1;
+                }
+                catch (WebPush.WebPushException error) when (pushNotifications.IsExpiredSubscription(error))
+                {
+                    db.PushNotificationSubscriptions.Remove(subscription);
+                }
+                catch (Exception error)
+                {
+                    subscription.LastError = Clean(error.Message, 500);
+                    subscription.LastErrorAt = DateTimeOffset.UtcNow;
+                    pushNotifications.LogSendFailure(subscription, error);
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            if (sent == 0)
+            {
+                return Results.BadRequest(new { error = "No test notification could be sent. Please try the button again." });
+            }
+
+            return Results.Ok(new PushNotificationTestResponse(true, sent));
+        }).RequireAuthorization();
+
         app.MapGet("/api/users", async (AppDbContext db) =>
         {
             var users = await db.Users
@@ -177,6 +309,17 @@ public static class ApiRoutes
             return user is null ? Results.NotFound() : Results.Ok(AuthService.ToUserDto(user));
         }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
 
+        app.MapDelete("/api/users/{id:guid}", async (Guid id, AuthService authService, ClaimsPrincipal currentUser) =>
+        {
+            if (IsSelfDelete(id, currentUser))
+            {
+                return Results.BadRequest(new { error = "You cannot delete your own account." });
+            }
+
+            var deleted = await authService.DeleteUserAsync(id);
+            return deleted ? Results.NoContent() : Results.NotFound();
+        }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
+
         app.MapPost("/api/users/{id:guid}/password", async (Guid id, ResetPasswordRequest request, AuthService authService) =>
         {
             try
@@ -194,6 +337,8 @@ public static class ApiRoutes
         {
             var events = await db.Events
                 .AsNoTracking()
+                .Include(item => item.CreatedByUser)
+                .Include(item => item.UpdatedByUser)
                 .OrderBy(item => item.SortOrder)
                 .ToListAsync();
             var eventIds = events.Select(EventOwnerId).ToArray();
@@ -206,12 +351,20 @@ public static class ApiRoutes
             return Results.Ok(events.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>())));
         }).AllowAnonymous();
 
-        app.MapPut("/api/events", async (List<EventDto> events, AppDbContext db) =>
+        app.MapPut("/api/events", async (List<EventDto> events, AppDbContext db, ClaimsPrincipal currentUser) =>
         {
+            var currentUserId = CurrentUserId(currentUser);
+            var existingEventList = await db.Events.AsNoTracking().ToListAsync();
+            var existingEvents = existingEventList.ToDictionary(EventOwnerId, StringComparer.Ordinal);
+            if (!CurrentUserIsAdmin(currentUser) && RemovesExistingCommunityEvent(events, existingEvents))
+            {
+                return Results.Forbid();
+            }
+
             await using var transaction = await db.Database.BeginTransactionAsync();
             db.Events.RemoveRange(await db.Events.ToListAsync());
             db.StoredPhotos.RemoveRange(await db.StoredPhotos.Where(photo => photo.OwnerType == CommunityEventPhotoOwner).ToListAsync());
-            var eventEntities = events.Select((item, index) => ToEventEntity(item, index)).ToList();
+            var eventEntities = events.Select((item, index) => ToEventEntity(item, index, currentUserId, existingEvents)).ToList();
             var photoEntities = events
                 .SelectMany((item, index) => ToPhotoEntities(CommunityEventPhotoOwner, eventEntities[index].PublicId, item.Photos))
                 .ToList();
@@ -219,8 +372,20 @@ public static class ApiRoutes
             await db.StoredPhotos.AddRangeAsync(photoEntities);
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
-            var photosByEvent = photoEntities.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
-            return Results.Ok(eventEntities.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(item.PublicId) ?? new List<StoredPhotoEntity>())));
+            var savedEvents = await db.Events
+                .AsNoTracking()
+                .Include(item => item.CreatedByUser)
+                .Include(item => item.UpdatedByUser)
+                .OrderBy(item => item.SortOrder)
+                .ToListAsync();
+            var savedEventIds = savedEvents.Select(EventOwnerId).ToArray();
+            var savedPhotos = await db.StoredPhotos
+                .AsNoTracking()
+                .Where(photo => photo.OwnerType == CommunityEventPhotoOwner && savedEventIds.Contains(photo.OwnerId))
+                .OrderBy(photo => photo.CreatedAt)
+                .ToListAsync();
+            var photosByEvent = savedPhotos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
+            return Results.Ok(savedEvents.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>())));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
 
         app.MapPost("/api/litter-reports", async (LitterReportDto payload, AppDbContext db) =>
@@ -259,7 +424,8 @@ public static class ApiRoutes
         {
             var reports = await db.LitterReports
                 .AsNoTracking()
-                .OrderByDescending(item => item.CreatedAt)
+                .OrderBy(item => item.State == "addressed" ? 1 : 0)
+                .ThenByDescending(item => item.CreatedAt)
                 .ToListAsync();
             var reportIds = reports.Select(item => item.Id).ToArray();
             var photos = await db.StoredPhotos
@@ -269,7 +435,46 @@ public static class ApiRoutes
                 .ToListAsync();
             var photosByReport = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
             return Results.Ok(reports.Select(report => ToLitterReportDto(report, photosByReport.GetValueOrDefault(report.Id) ?? new List<StoredPhotoEntity>())));
-        }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
+        }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
+
+        app.MapPut("/api/litter-reports/{id}/state", async (
+            string id,
+            UpdateLitterReportStateRequest request,
+            AppDbContext db) =>
+        {
+            var reportId = Clean(id, 80);
+            var report = await db.LitterReports.SingleOrDefaultAsync(item => item.Id == reportId);
+            if (report is null)
+            {
+                return Results.NotFound();
+            }
+
+            report.State = NormalizeReportState(request.State);
+            await db.SaveChangesAsync();
+            var photos = await db.StoredPhotos
+                .AsNoTracking()
+                .Where(photo => photo.OwnerType == LitterReportPhotoOwner && photo.OwnerId == report.Id)
+                .OrderBy(photo => photo.CreatedAt)
+                .ToListAsync();
+            return Results.Ok(ToLitterReportDto(report, photos));
+        }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
+
+        app.MapDelete("/api/litter-reports/{id}", async (string id, AppDbContext db) =>
+        {
+            var reportId = Clean(id, 80);
+            var report = await db.LitterReports.SingleOrDefaultAsync(item => item.Id == reportId);
+            if (report is null)
+            {
+                return Results.NotFound();
+            }
+
+            db.LitterReports.Remove(report);
+            db.StoredPhotos.RemoveRange(await db.StoredPhotos
+                .Where(photo => photo.OwnerType == LitterReportPhotoOwner && photo.OwnerId == report.Id)
+                .ToListAsync());
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
 
         app.MapGet("/api/feedback", async (AppDbContext db) =>
         {
@@ -285,7 +490,7 @@ public static class ApiRoutes
                 .ToListAsync();
             var photosByMessage = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
             return Results.Ok(messages.Select(message => ToFeedbackMessageDto(message, photosByMessage.GetValueOrDefault(message.Id) ?? new List<StoredPhotoEntity>())));
-        }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
+        }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
 
         app.MapDelete("/api/feedback/{id}", async (string id, AppDbContext db) =>
         {
@@ -301,12 +506,14 @@ public static class ApiRoutes
                 .ToListAsync());
             await db.SaveChangesAsync();
             return Results.NoContent();
-        }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
+        }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
 
         app.MapGet("/api/litter-pick-events", async (AppDbContext db) =>
         {
             var events = await db.LitterPickEvents
                 .AsNoTracking()
+                .Include(item => item.CreatedByUser)
+                .Include(item => item.UpdatedByUser)
                 .OrderByDescending(item => item.Date)
                 .ThenByDescending(item => item.Start)
                 .ToListAsync();
@@ -328,6 +535,8 @@ public static class ApiRoutes
         {
             var events = await db.LitterPickEvents
                 .AsNoTracking()
+                .Include(item => item.CreatedByUser)
+                .Include(item => item.UpdatedByUser)
                 .Where(item => item.Status == "open")
                 .OrderBy(item => item.Date)
                 .ThenBy(item => item.Start)
@@ -416,17 +625,25 @@ public static class ApiRoutes
             return Results.Ok(new LitterPickAttendanceResponse(eventId, request.Attending));
         }).RequireAuthorization();
 
-        app.MapPut("/api/litter-pick-events", async (List<LitterPickEventDto> events, AppDbContext db) =>
+        app.MapPut("/api/litter-pick-events", async (List<LitterPickEventDto> events, AppDbContext db, ClaimsPrincipal currentUser) =>
         {
-            await using var transaction = await db.Database.BeginTransactionAsync();
-            var eventEntities = events.Select(ToLitterPickEventEntity).ToList();
-            var eventIds = eventEntities.Select(item => item.Id).ToArray();
+            var currentUserId = CurrentUserId(currentUser);
             var existingEvents = await db.LitterPickEvents.ToDictionaryAsync(item => item.Id);
+            var eventEntities = events.Select(item => ToLitterPickEventEntity(item, currentUserId, existingEvents)).ToList();
+            var eventIds = eventEntities.Select(item => item.Id).ToArray();
             var deletedEventIds = existingEvents.Keys.Except(eventIds, StringComparer.Ordinal).ToArray();
+            if (!CurrentUserIsAdmin(currentUser) && deletedEventIds.Length > 0)
+            {
+                return Results.Forbid();
+            }
 
+            await using var transaction = await db.Database.BeginTransactionAsync();
             if (deletedEventIds.Length > 0)
             {
                 db.LitterPickAttendances.RemoveRange(await db.LitterPickAttendances
+                    .Where(item => deletedEventIds.Contains(item.LitterPickEventId))
+                    .ToListAsync());
+                db.LitterPickReminderDeliveries.RemoveRange(await db.LitterPickReminderDeliveries
                     .Where(item => deletedEventIds.Contains(item.LitterPickEventId))
                     .ToListAsync());
                 db.StoredPhotos.RemoveRange(await db.StoredPhotos
@@ -442,7 +659,7 @@ public static class ApiRoutes
             {
                 if (existingEvents.TryGetValue(eventEntity.Id, out var existingEvent))
                 {
-                    UpdateLitterPickEventEntity(existingEvent, eventEntity);
+                    UpdateLitterPickEventEntity(existingEvent, eventEntity, currentUserId);
                 }
                 else
                 {
@@ -460,6 +677,8 @@ public static class ApiRoutes
             await transaction.CommitAsync();
             var savedEvents = await db.LitterPickEvents
                 .AsNoTracking()
+                .Include(item => item.CreatedByUser)
+                .Include(item => item.UpdatedByUser)
                 .OrderByDescending(item => item.Date)
                 .ThenByDescending(item => item.Start)
                 .ToListAsync();
@@ -484,6 +703,12 @@ public static class ApiRoutes
         return Guid.TryParse(currentIdText, out var currentId)
             && currentId == id
             && (request.IsDisabled || request.Roles?.Contains(AppRoles.Admin) != true);
+    }
+
+    private static bool IsSelfDelete(Guid id, ClaimsPrincipal currentUser)
+    {
+        var currentIdText = currentUser.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(currentIdText, out var currentId) && currentId == id;
     }
 
     private static string? ValidateContactMessage(ContactMessageRequest request)
@@ -530,6 +755,20 @@ public static class ApiRoutes
         return Guid.TryParse(currentIdText, out var currentId) ? currentId : null;
     }
 
+    private static bool CurrentUserIsAdmin(ClaimsPrincipal currentUser)
+    {
+        return currentUser.IsInRole(AppRoles.Admin);
+    }
+
+    private static bool RemovesExistingCommunityEvent(List<EventDto> events, IReadOnlyDictionary<string, CommunityEvent> existingEvents)
+    {
+        var incomingIds = events
+            .Select(item => CleanOptional(item.Id, 80))
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        return existingEvents.Keys.Any(id => !incomingIds.Contains(id));
+    }
+
     private static async Task<AppUser?> LoadCurrentUserAsync(ClaimsPrincipal currentUser, AppDbContext db)
     {
         var currentId = CurrentUserId(currentUser);
@@ -543,6 +782,13 @@ public static class ApiRoutes
             .Include(user => user.UserRoles)
             .ThenInclude(userRole => userRole.Role)
             .SingleOrDefaultAsync(user => user.Id == currentId && !user.IsDisabled);
+    }
+
+    private static EventCreatorDto? ToEventCreatorDto(AppUser? user)
+    {
+        return user is null
+            ? null
+            : new EventCreatorDto(user.Id, user.DisplayName, AuthService.AvatarDataUrl(user));
     }
 
     private static EventDto ToEventDto(CommunityEvent item, List<StoredPhotoEntity> photos)
@@ -562,15 +808,27 @@ public static class ApiRoutes
             Phone = item.Phone,
             ImageUrl = item.ImageUrl,
             ImageAlt = item.ImageAlt,
-            Photos = photos.Select(ToPhotoDto).ToList()
+            Photos = photos.Select(ToPhotoDto).ToList(),
+            CreatedAt = item.CreatedAt,
+            CreatedBy = ToEventCreatorDto(item.CreatedByUser),
+            UpdatedAt = item.UpdatedAt,
+            UpdatedBy = ToEventCreatorDto(item.UpdatedByUser)
         };
     }
 
-    private static CommunityEvent ToEventEntity(EventDto item, int index)
+    private static CommunityEvent ToEventEntity(
+        EventDto item,
+        int index,
+        Guid? currentUserId,
+        IReadOnlyDictionary<string, CommunityEvent> existingEvents)
     {
+        var publicId = CleanOptional(item.Id, 80) ?? $"event-{Guid.NewGuid():N}"[..38];
+        existingEvents.TryGetValue(publicId, out var existingEvent);
+        var now = DateTimeOffset.UtcNow;
+        var changed = existingEvent is null || CommunityEventChanged(item, existingEvent);
         return new CommunityEvent
         {
-            PublicId = CleanOptional(item.Id, 80) ?? $"event-{Guid.NewGuid():N}"[..38],
+            PublicId = publicId,
             SortOrder = index,
             Title = Clean(item.Title, 220),
             Date = Clean(item.Date, 40),
@@ -583,8 +841,28 @@ public static class ApiRoutes
             Note = CleanOptional(item.Note, 500),
             Phone = CleanOptional(item.Phone, 80),
             ImageUrl = CleanOptional(item.ImageUrl, 1_500_000),
-            ImageAlt = CleanOptional(item.ImageAlt, 260)
+            ImageAlt = CleanOptional(item.ImageAlt, 260),
+            CreatedAt = existingEvent?.CreatedAt ?? now,
+            CreatedByUserId = existingEvent?.CreatedByUserId ?? currentUserId,
+            UpdatedAt = changed ? now : existingEvent?.UpdatedAt ?? now,
+            UpdatedByUserId = changed ? currentUserId : existingEvent?.UpdatedByUserId
         };
+    }
+
+    private static bool CommunityEventChanged(EventDto source, CommunityEvent target)
+    {
+        return Clean(source.Title, 220) != target.Title
+            || Clean(source.Date, 40) != target.Date
+            || Clean(source.Start, 40) != target.Start
+            || Clean(source.End, 40) != target.End
+            || CleanOptional(source.Location, 220) != target.Location
+            || Clean(source.Description, 5000) != target.Description
+            || CleanOptional(source.CtaLabel, 120) != target.CtaLabel
+            || CleanOptional(source.CtaHref, 1200) != target.CtaHref
+            || CleanOptional(source.Note, 500) != target.Note
+            || CleanOptional(source.Phone, 80) != target.Phone
+            || CleanOptional(source.ImageUrl, 1_500_000) != target.ImageUrl
+            || CleanOptional(source.ImageAlt, 260) != target.ImageAlt;
     }
 
     private static string EventOwnerId(CommunityEvent item)
@@ -598,6 +876,7 @@ public static class ApiRoutes
         {
             Id = report.Id,
             CreatedAt = report.CreatedAt,
+            State = NormalizeReportState(report.State),
             LocationLabel = report.LocationLabel,
             Lat = report.Lat,
             Lng = report.Lng,
@@ -647,6 +926,7 @@ public static class ApiRoutes
         {
             Id = $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Guid.NewGuid():N}"[..28],
             CreatedAt = DateTimeOffset.UtcNow,
+            State = "new",
             LocationLabel = CleanOptional(payload.LocationLabel, 80) ?? "Selected map point",
             Lat = payload.Lat,
             Lng = payload.Lng,
@@ -655,6 +935,13 @@ public static class ApiRoutes
             Contact = CleanOptional(payload.Contact, 180),
             MapLink = MapLinkFor(payload.Lat, payload.Lng)
         };
+    }
+
+    private static string NormalizeReportState(string? state)
+    {
+        return string.Equals(state?.Trim(), "addressed", StringComparison.OrdinalIgnoreCase)
+            ? "addressed"
+            : "new";
     }
 
     private static LitterPickEventDto ToLitterPickEventDto(
@@ -693,16 +980,23 @@ public static class ApiRoutes
             Areas = DeserializeAreas(item.AreasJson),
             Photos = photos.Select(ToPhotoDto).ToList(),
             CreatedAt = item.CreatedAt,
-            UpdatedAt = item.UpdatedAt
+            UpdatedAt = item.UpdatedAt,
+            CreatedBy = ToEventCreatorDto(item.CreatedByUser),
+            UpdatedBy = ToEventCreatorDto(item.UpdatedByUser)
         };
     }
 
-    private static LitterPickEventEntity ToLitterPickEventEntity(LitterPickEventDto item)
+    private static LitterPickEventEntity ToLitterPickEventEntity(
+        LitterPickEventDto item,
+        Guid? currentUserId,
+        IReadOnlyDictionary<string, LitterPickEventEntity> existingEvents)
     {
         var now = DateTimeOffset.UtcNow;
+        var id = string.IsNullOrWhiteSpace(item.Id) ? $"litter-pick-{Guid.NewGuid():N}"[..24] : Clean(item.Id, 80);
+        existingEvents.TryGetValue(id, out var existingEvent);
         return new LitterPickEventEntity
         {
-            Id = string.IsNullOrWhiteSpace(item.Id) ? $"litter-pick-{Guid.NewGuid():N}"[..24] : Clean(item.Id, 80),
+            Id = id,
             Title = CleanOptional(item.Title, 220) ?? DefaultLitterPickTitle(item.Date),
             Date = Clean(item.Date, 40),
             Start = CleanOptional(item.Start, 40),
@@ -727,13 +1021,16 @@ public static class ApiRoutes
             Notes = CleanOptional(item.Notes, 5000),
             Status = item.Status == "closed" ? "closed" : "open",
             AreasJson = JsonSerializer.Serialize(item.Areas ?? new List<LitterPickAreaDto>(), JsonOptions),
-            CreatedAt = item.CreatedAt ?? now,
-            UpdatedAt = now
+            CreatedAt = existingEvent?.CreatedAt ?? now,
+            UpdatedAt = item.UpdatedAt ?? existingEvent?.UpdatedAt ?? now,
+            CreatedByUserId = existingEvent?.CreatedByUserId ?? currentUserId,
+            UpdatedByUserId = currentUserId
         };
     }
 
-    private static void UpdateLitterPickEventEntity(LitterPickEventEntity target, LitterPickEventEntity source)
+    private static void UpdateLitterPickEventEntity(LitterPickEventEntity target, LitterPickEventEntity source, Guid? currentUserId)
     {
+        var changed = LitterPickEventChanged(target, source) || source.UpdatedAt > target.UpdatedAt.AddSeconds(1);
         target.Title = source.Title;
         target.Date = source.Date;
         target.Start = source.Start;
@@ -757,7 +1054,38 @@ public static class ApiRoutes
         target.Notes = source.Notes;
         target.Status = source.Status;
         target.AreasJson = source.AreasJson;
-        target.UpdatedAt = DateTimeOffset.UtcNow;
+        if (changed)
+        {
+            target.UpdatedAt = DateTimeOffset.UtcNow;
+            target.UpdatedByUserId = currentUserId;
+        }
+    }
+
+    private static bool LitterPickEventChanged(LitterPickEventEntity target, LitterPickEventEntity source)
+    {
+        return target.Title != source.Title
+            || target.Date != source.Date
+            || target.Start != source.Start
+            || target.End != source.End
+            || target.Description != source.Description
+            || target.MeetingPoint != source.MeetingPoint
+            || target.MeetingPointLat != source.MeetingPointLat
+            || target.MeetingPointLng != source.MeetingPointLng
+            || target.Capacity != source.Capacity
+            || target.WhatToBring != source.WhatToBring
+            || target.EquipmentProvided != source.EquipmentProvided
+            || target.Difficulty != source.Difficulty
+            || target.FamilyFriendly != source.FamilyFriendly
+            || target.AccessibilityNotes != source.AccessibilityNotes
+            || target.WeatherPlan != source.WeatherPlan
+            || target.ContactName != source.ContactName
+            || target.ContactEmail != source.ContactEmail
+            || target.ContactPhone != source.ContactPhone
+            || target.BagsGoal != source.BagsGoal
+            || target.VolunteersGoal != source.VolunteersGoal
+            || target.Notes != source.Notes
+            || target.Status != source.Status
+            || target.AreasJson != source.AreasJson;
     }
 
     private static async Task<Dictionary<string, int>> LitterPickAttendanceCountsAsync(AppDbContext db, string[] eventIds)
@@ -805,6 +1133,100 @@ public static class ApiRoutes
         }
 
         await db.SaveChangesAsync();
+    }
+
+    private static async Task<IResult> SearchStreetAsync(HttpContext httpContext, CancellationToken cancellationToken)
+    {
+        var rawQuery = CleanOptional(httpContext.Request.Query["q"].ToString(), 220);
+        if (string.IsNullOrWhiteSpace(rawQuery))
+        {
+            return Results.BadRequest(new { error = "Street search query is required." });
+        }
+
+        var searchQuery = rawQuery.Contains("Hethersett", StringComparison.OrdinalIgnoreCase)
+            ? rawQuery
+            : $"{rawQuery}, Hethersett, Norfolk, United Kingdom";
+        var parameters = new Dictionary<string, string>
+        {
+            ["format"] = "jsonv2",
+            ["q"] = searchQuery,
+            ["addressdetails"] = "1",
+            ["polygon_geojson"] = "1",
+            ["countrycodes"] = "gb",
+            ["limit"] = NominatimLimit(httpContext.Request.Query["limit"].ToString()).ToString(CultureInfo.InvariantCulture),
+            ["dedupe"] = httpContext.Request.Query["dedupe"].ToString() == "1" ? "1" : "0",
+            ["bounded"] = "1",
+            ["viewbox"] = HethersettStreetViewBox
+        };
+        var queryString = string.Join("&", parameters.Select(item =>
+            $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value)}"));
+
+        if (TryGetCachedNominatimResult(queryString, out var cachedJson))
+        {
+            return Results.Content(cachedJson, "application/json");
+        }
+
+        await NominatimRequestGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (TryGetCachedNominatimResult(queryString, out cachedJson))
+            {
+                return Results.Content(cachedJson, "application/json");
+            }
+
+            var waitTime = NominatimMinimumInterval - (DateTimeOffset.UtcNow - _lastNominatimRequestAt);
+            if (waitTime > TimeSpan.Zero)
+            {
+                await Task.Delay(waitTime, cancellationToken);
+            }
+
+            using var response = await NominatimHttpClient.GetAsync($"search?{queryString}", cancellationToken);
+            _lastNominatimRequestAt = DateTimeOffset.UtcNow;
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return Results.Problem("Street search is unavailable right now.", statusCode: (int)response.StatusCode);
+            }
+
+            NominatimSearchCache[queryString] = new NominatimCacheItem(DateTimeOffset.UtcNow, content);
+            return Results.Content(content, "application/json");
+        }
+        finally
+        {
+            NominatimRequestGate.Release();
+        }
+    }
+
+    private static bool TryGetCachedNominatimResult(string key, out string json)
+    {
+        if (NominatimSearchCache.TryGetValue(key, out var cached) &&
+            DateTimeOffset.UtcNow - cached.CachedAt <= NominatimCacheDuration)
+        {
+            json = cached.Json;
+            return true;
+        }
+
+        json = string.Empty;
+        return false;
+    }
+
+    private static int NominatimLimit(string? value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, 1, 20)
+            : 20;
+    }
+
+    private static HttpClient CreateNominatimHttpClient()
+    {
+        var client = new HttpClient
+        {
+            BaseAddress = new Uri("https://nominatim.openstreetmap.org/")
+        };
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "HappyHealthyHethersett/1.0 (https://happyhealthyhethersett.org)");
+        client.DefaultRequestHeaders.Referrer = new Uri("https://happyhealthyhethersett.org/");
+        return client;
     }
 
     private static string DefaultLitterPickTitle(string? date)
@@ -922,4 +1344,6 @@ public static class ApiRoutes
     {
         return value.HasValue ? Math.Max(0, value.Value) : null;
     }
+
+    private sealed record NominatimCacheItem(DateTimeOffset CachedAt, string Json);
 }

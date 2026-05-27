@@ -16,9 +16,29 @@
     </div>
 
     <div class="litter-pick-public__grid" *ngIf="!loading && !error && litterPicks.length; else noLitterPicks">
-      <article class="litter-pick-card" *ngFor="let event of litterPicks">
+      <article class="litter-pick-card" *ngFor="let event of litterPicks; let i = index">
         <div class="litter-pick-card__media" [class.has-photo]="primaryPhoto(event)">
-          <img *ngIf="primaryPhoto(event)" [src]="primaryPhoto(event)" alt="Community litter pick" loading="lazy" />
+          <ng-container *ngIf="eventPhotos(event) as photos">
+            <div class="litter-pick-card__photo-layout" *ngIf="photos.length">
+              <figure class="litter-pick-card__photo-main">
+                <img [src]="photos[0].dataUrl" [alt]="eventPhotoAlt(event, 0)" loading="lazy" decoding="async" />
+              </figure>
+              <button
+                class="litter-pick-card__gallery-button"
+                type="button"
+                [attr.aria-label]="galleryButtonAriaLabel(event)"
+                (click)="openPhotoGallery(event)"
+              >
+                <span class="litter-pick-card__gallery-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M4 7h3l1.4-2h7.2L17 7h3v12H4z" />
+                    <circle cx="12" cy="13" r="3.2" />
+                  </svg>
+                </span>
+                {{ galleryButtonLabel(event) }}
+              </button>
+            </div>
+          </ng-container>
           <div class="litter-pick-card__date" aria-hidden="true">
             <strong>{{ dateTile(event).day }}</strong>
             <span>{{ dateTile(event).month }}</span>
@@ -31,7 +51,9 @@
               <p class="litter-pick-card__eyebrow">{{ formatDate(event) }} · {{ timeRange(event) }}</p>
               <h3>Community litter pick</h3>
             </div>
-            <span class="litter-pick-card__status">Open</span>
+            <div class="litter-pick-card__corner">
+              <span class="litter-pick-card__status">Open</span>
+            </div>
           </div>
 
           <p>{{ shortDescription(event) }}</p>
@@ -69,6 +91,21 @@
             >
               {{ currentUser ? attendanceButtonLabel(event) : 'Sign in to join' }}
             </button>
+            <!--
+            <button
+              class="btn btn--outline litter-pick-card__test-button"
+              type="button"
+              *ngIf="currentUser && event.isAttending"
+              [class.is-success]="notificationTestState[event.id] === 'sent'"
+              [class.is-error]="notificationTestState[event.id] === 'failed'"
+              [disabled]="notificationTestState[event.id] === 'sending'"
+              [attr.aria-label]="testReminderTitle(event)"
+              [attr.title]="testReminderTitle(event)"
+              (click)="sendTestReminder(event)"
+            >
+              {{ testReminderLabel(event) }}
+            </button>
+            -->
             <a class="btn btn--primary litter-pick-card__contact" [href]="contactHref(event)">
               <span class="litter-pick-card__contact-icon" aria-hidden="true" *ngIf="contactEmail(event)">
                 <svg viewBox="0 0 24 24" focusable="false">
@@ -80,7 +117,72 @@
               </span>
               {{ contactLabel(event) }}
             </a>
-            <button class="btn btn--secondary" type="button" (click)="downloadCalendar(event)">Add to calendar</button>
+            <button class="btn btn--outline litter-pick-card__calendar-button" type="button" (click)="downloadCalendar(event)">
+              <span class="litter-pick-card__calendar-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M7 3v4" />
+                  <path d="M17 3v4" />
+                  <path d="M4 9h16" />
+                  <path d="M5 5h14v16H5z" />
+                </svg>
+              </span>
+              Add to calendar
+            </button>
+          </div>
+          <p
+            class="litter-pick-card__notification-status"
+            *ngIf="notificationTestMessage[event.id]"
+            [class.is-error]="notificationTestState[event.id] === 'failed'"
+          >
+            {{ notificationTestMessage[event.id] }}
+          </p>
+
+          <div class="litter-pick-card__history litter-pick-card__history--bottom" *ngIf="showCreatedMeta(event)" aria-label="Event history">
+            <button
+              class="litter-pick-card__history-avatar"
+              type="button"
+              tabindex="0"
+              [attr.title]="creatorHistoryLabel(event)"
+              [attr.aria-label]="creatorHistoryLabel(event)"
+              [attr.aria-expanded]="isHistoryPopoverOpen(i, 'created')"
+              [attr.aria-controls]="historyPopoverId(i, 'created')"
+              (click)="toggleHistoryPopover(i, 'created', $event)"
+            >
+              <img *ngIf="creatorAvatar(event); else litterPickCreatorInitials" [src]="creatorAvatar(event)" alt="" />
+              <ng-template #litterPickCreatorInitials>{{ creatorInitials(event) }}</ng-template>
+            </button>
+            <button
+              class="litter-pick-card__history-avatar litter-pick-card__history-avatar--edited"
+              *ngIf="showUpdaterAvatar(event)"
+              type="button"
+              tabindex="0"
+              [attr.title]="updaterHistoryLabel(event)"
+              [attr.aria-label]="updaterHistoryLabel(event)"
+              [attr.aria-expanded]="isHistoryPopoverOpen(i, 'edited')"
+              [attr.aria-controls]="historyPopoverId(i, 'edited')"
+              (click)="toggleHistoryPopover(i, 'edited', $event)"
+            >
+              <img *ngIf="updaterAvatar(event); else litterPickUpdaterInitials" [src]="updaterAvatar(event)" alt="" />
+              <ng-template #litterPickUpdaterInitials>{{ updaterInitials(event) }}</ng-template>
+            </button>
+            <div
+              class="litter-pick-card__history-popover"
+              *ngIf="isHistoryPopoverOpen(i, 'created')"
+              [id]="historyPopoverId(i, 'created')"
+              role="tooltip"
+              (click)="$event.stopPropagation()"
+            >
+              {{ creatorHistoryLabel(event) }}
+            </div>
+            <div
+              class="litter-pick-card__history-popover"
+              *ngIf="isHistoryPopoverOpen(i, 'edited')"
+              [id]="historyPopoverId(i, 'edited')"
+              role="tooltip"
+              (click)="$event.stopPropagation()"
+            >
+              {{ updaterHistoryLabel(event) }}
+            </div>
           </div>
         </div>
       </article>
@@ -91,5 +193,65 @@
         <p>No community litter picks are scheduled right now. Please check back soon.</p>
       </div>
     </ng-template>
+  </div>
+
+  <div
+    class="litter-gallery"
+    *ngIf="activeGalleryEvent as galleryEvent"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="litter-gallery-title"
+    (click)="closePhotoGallery()"
+  >
+    <div class="litter-gallery__panel" (click)="$event.stopPropagation()">
+      <header class="litter-gallery__header">
+        <div>
+          <p>{{ formatDate(galleryEvent) }} · {{ timeRange(galleryEvent) }}</p>
+          <h3 id="litter-gallery-title">Event photos</h3>
+        </div>
+        <button class="litter-gallery__close" type="button" aria-label="Close event photo gallery" (click)="closePhotoGallery()">×</button>
+      </header>
+
+      <div class="litter-gallery__stage">
+        <button
+          class="litter-gallery__nav litter-gallery__nav--prev"
+          type="button"
+          aria-label="Previous photo"
+          *ngIf="activeGalleryPhotos().length > 1"
+          (click)="previousGalleryPhoto()"
+        >
+          ‹
+        </button>
+
+        <figure class="litter-gallery__figure" *ngIf="activeGalleryPhoto() as photo">
+          <img [src]="photo.dataUrl" [alt]="eventPhotoAlt(galleryEvent, activeGalleryIndex)" />
+          <figcaption>{{ activeGalleryIndex + 1 }} of {{ activeGalleryPhotos().length }}</figcaption>
+        </figure>
+
+        <button
+          class="litter-gallery__nav litter-gallery__nav--next"
+          type="button"
+          aria-label="Next photo"
+          *ngIf="activeGalleryPhotos().length > 1"
+          (click)="nextGalleryPhoto()"
+        >
+          ›
+        </button>
+      </div>
+
+      <div class="litter-gallery__thumbs" *ngIf="activeGalleryPhotos().length > 1" aria-label="Choose event photo">
+        <button
+          class="litter-gallery__thumb"
+          type="button"
+          *ngFor="let photo of activeGalleryPhotos(); let photoIndex = index; trackBy: trackPhoto"
+          [class.is-active]="photoIndex === activeGalleryIndex"
+          [attr.aria-label]="'Show photo ' + (photoIndex + 1)"
+          [attr.aria-current]="photoIndex === activeGalleryIndex ? 'true' : null"
+          (click)="setActiveGalleryPhoto(photoIndex)"
+        >
+          <img [src]="photo.dataUrl" [alt]="eventPhotoAlt(galleryEvent, photoIndex)" />
+        </button>
+      </div>
+    </div>
   </div>
 </section>

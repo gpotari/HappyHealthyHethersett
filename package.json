@@ -5,7 +5,7 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
-    "server": "/opt/homebrew/opt/dotnet@8/libexec/dotnet run --project api --urls http://localhost:5000",
+    "server": "./scripts/start-api.sh",
     "server:node": "node server/server.js",
     "start:proxy": "ng serve --proxy-config proxy.conf.json"
   },

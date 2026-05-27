@@ -146,7 +146,7 @@ export class HeaderComponent implements OnInit, OnDestroy {
         this.registerPasswordInput = '';
         this.registerConfirmPasswordInput = '';
         this.authMode = 'signIn';
-        this.accountStatus = 'Registration sent. An admin needs to enable the account before you can sign in.';
+        this.accountStatus = 'Registration complete. You can now sign in.';
       },
       error: () => {
         this.registerLoading = false;
@@ -291,8 +291,8 @@ export class HeaderComponent implements OnInit, OnDestroy {
     });
   }
 
-  get hasAdminRole(): boolean {
-    return this.currentUser?.roles.includes('Admin') ?? false;
+  get canOpenAdminPanel(): boolean {
+    return this.currentUser?.roles.some((role) => role === 'Admin' || role === 'Editor') ?? false;
   }
 
   get avatarPreview(): string {

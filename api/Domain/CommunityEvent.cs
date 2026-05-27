@@ -17,4 +17,10 @@ public class CommunityEvent
     public string? Phone { get; set; }
     public string? ImageUrl { get; set; }
     public string? ImageAlt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? CreatedByUserId { get; set; }
+    public AppUser? CreatedByUser { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? UpdatedByUserId { get; set; }
+    public AppUser? UpdatedByUser { get; set; }
 }

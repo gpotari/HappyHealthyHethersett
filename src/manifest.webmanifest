@@ -1,0 +1,17 @@
+{
+  "name": "Happy Healthy Hethersett",
+  "short_name": "HHH",
+  "id": "/",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6fbf8",
+  "theme_color": "#173f2d",
+  "icons": [
+    {
+      "src": "/assets/images/hhh-oval-logo.png",
+      "sizes": "300x300",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

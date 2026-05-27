@@ -80,7 +80,7 @@
             <p>Details are optional, but they help volunteers find and prioritise the report.</p>
           </div>
 
-          <form class="report-form" (ngSubmit)="submitReport()">
+          <form class="report-form" (ngSubmit)="submitReport()" [attr.aria-busy]="submitting">
             <fieldset class="litter-amount">
               <legend>How much litter is there?</legend>
               <label>
@@ -144,6 +144,21 @@
             <button class="btn btn--primary" type="submit" [disabled]="!selectedPoint || submitting">
               {{ submitting ? 'Submitting report...' : 'Submit report' }}
             </button>
+
+            <div class="report-submit-progress" *ngIf="submitting" aria-live="polite">
+              <div class="report-submit-progress__header">
+                <span>{{ submitProgressMessage }}</span>
+                <strong>{{ submitProgress }}%</strong>
+              </div>
+              <progress
+                [value]="submitProgress"
+                max="100"
+                [attr.aria-valuenow]="submitProgress"
+                aria-label="Report submission progress"
+              >
+                {{ submitProgress }}%
+              </progress>
+            </div>
           </form>
 
           <p class="report-submit-error" *ngIf="submitError">{{ submitError }}</p>

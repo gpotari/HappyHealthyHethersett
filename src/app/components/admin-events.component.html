@@ -5,7 +5,7 @@
       <p class="section__intro">
         {{
           isUnlocked
-            ? 'Manage public events, feedback and litter reports from one simple workspace.'
+            ? adminIntro
             : 'Sign in or register for a Happy Healthy Hethersett account.'
         }}
       </p>
@@ -25,7 +25,7 @@
         </div>
       </div>
       <p class="admin-auth__intro">
-        Use the Account button in the top-right corner to sign in or register. Admin users can then open this dashboard from the account menu.
+        Use the Account button in the top-right corner to sign in or register. Admins and editors can then open this dashboard from the account menu.
       </p>
     </div>
 
@@ -38,7 +38,7 @@
         <button class="btn btn--secondary" type="button" (click)="logout()">Sign out</button>
       </div>
       <p class="admin-auth__intro">
-        This account is signed in on this device, but it does not have admin access. Ask an admin to grant access if you need to manage site content.
+        This account is signed in on this device, but it does not have admin or editor access. Ask an admin to grant access if you need to manage site content.
       </p>
     </div>
 
@@ -63,6 +63,7 @@
           type="button"
           [class.is-active]="activeAdminSection === 'feedback'"
           (click)="showSection('feedback')"
+          *ngIf="canManageSubmissions"
         >
           <span>Feedback</span>
           <strong>{{ feedbackMessages.length }}</strong>
@@ -72,6 +73,7 @@
           type="button"
           [class.is-active]="activeAdminSection === 'reports'"
           (click)="showSection('reports')"
+          *ngIf="canManageSubmissions"
         >
           <span>Litter reports</span>
           <strong>{{ reports.length }}</strong>
@@ -111,7 +113,7 @@
                 {{ showCreateForm ? 'Close create form' : 'Create event' }}
               </button>
               <button class="btn btn--secondary" type="button" (click)="downloadJson()">Download JSON</button>
-              <label class="btn btn--secondary admin__upload">
+              <label class="btn btn--secondary admin__upload" *ngIf="canDeleteContent">
                 Upload JSON
                 <input type="file" accept=".json" (change)="uploadJson($event)" />
               </label>
@@ -129,6 +131,7 @@
                   <th>Date</th>
                   <th>Time</th>
                   <th>Location</th>
+                  <th>History</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -139,11 +142,34 @@
                     <td>{{ event.date }}</td>
                     <td>{{ event.start }} – {{ event.end }}</td>
                     <td>{{ event.location || '—' }}</td>
+                    <td>
+                      <div class="admin__history-stack" aria-label="Event history">
+                        <span
+                          class="admin__history-avatar"
+                          tabindex="0"
+                          [attr.title]="creatorHistoryLabel(event)"
+                          [attr.aria-label]="creatorHistoryLabel(event)"
+                        >
+                          <img *ngIf="creatorAvatar(event); else adminEventCreatorInitials" [src]="creatorAvatar(event)" alt="" />
+                          <ng-template #adminEventCreatorInitials>{{ creatorInitials(event) }}</ng-template>
+                        </span>
+                        <span
+                          class="admin__history-avatar admin__history-avatar--edited"
+                          *ngIf="showUpdaterAvatar(event)"
+                          tabindex="0"
+                          [attr.title]="updaterHistoryLabel(event)"
+                          [attr.aria-label]="updaterHistoryLabel(event)"
+                        >
+                          <img *ngIf="updaterAvatar(event); else adminEventUpdaterInitials" [src]="updaterAvatar(event)" alt="" />
+                          <ng-template #adminEventUpdaterInitials>{{ updaterInitials(event) }}</ng-template>
+                        </span>
+                      </div>
+                    </td>
                     <td class="admin__table-actions">
                       <button class="btn btn--secondary" type="button" (click)="toggleDetails(i)">
                         Details
                       </button>
-                      <button class="btn btn--danger" type="button" (click)="deleteEvent(i)">Delete</button>
+                      <button class="btn btn--danger" type="button" (click)="deleteEvent(i)" *ngIf="canDeleteContent">Delete</button>
                     </td>
                   </tr>
                 </ng-container>
@@ -157,7 +183,7 @@
           </ng-template>
         </section>
 
-        <section class="admin-section" *ngIf="activeAdminSection === 'feedback'" aria-labelledby="feedback-admin-title">
+        <section class="admin-section" *ngIf="activeAdminSection === 'feedback' && canManageSubmissions" aria-labelledby="feedback-admin-title">
           <div class="admin-section__header">
             <div>
               <p class="admin-section__eyebrow">Feedback</p>
@@ -211,7 +237,7 @@
           </ng-template>
         </section>
 
-        <section class="admin-section" *ngIf="activeAdminSection === 'reports'" aria-labelledby="reports-admin-title">
+        <section class="admin-section" *ngIf="activeAdminSection === 'reports' && canManageSubmissions" aria-labelledby="reports-admin-title">
           <div class="admin-section__header">
             <div>
               <p class="admin-section__eyebrow">Reports</p>
@@ -224,47 +250,105 @@
           </div>
 
           <p class="admin__error" *ngIf="reportsError">{{ reportsError }}</p>
+          <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
 
-          <div class="admin__reports-grid" *ngIf="reports.length; else noReports">
-            <article class="admin__report-card" *ngFor="let report of reports">
-              <div class="admin__report-header">
-                <div>
-                  <p class="admin__report-date">{{ formatReportDate(report) }}</p>
-                  <h4>{{ report.amount || 'Amount not specified' }}</h4>
-                </div>
-                <a [href]="reportMapLink(report)" target="_blank" rel="noopener">Open map</a>
+          <div class="admin-report-filters" *ngIf="reports.length" role="group" aria-label="Filter litter reports by state">
+            <button type="button" [class.is-active]="reportStateFilter === 'all'" (click)="setReportFilter('all')">
+              <span>All</span>
+              <strong>{{ reports.length }}</strong>
+            </button>
+            <button type="button" [class.is-active]="reportStateFilter === 'new'" (click)="setReportFilter('new')">
+              <span>{{ reportStateLabel('new') }}</span>
+              <strong>{{ reportCount('new') }}</strong>
+            </button>
+            <button type="button" [class.is-active]="reportStateFilter === 'addressed'" (click)="setReportFilter('addressed')">
+              <span>{{ reportStateLabel('addressed') }}</span>
+              <strong>{{ reportCount('addressed') }}</strong>
+            </button>
+          </div>
+
+          <div class="admin-report-workspace" *ngIf="reports.length; else noReports">
+            <div class="admin-report-list" aria-label="Litter reports list">
+              <div class="admin-report-list__empty" *ngIf="!filteredReports.length">
+                <p>No reports match this state.</p>
               </div>
-              <dl class="admin__report-details">
-                <div>
-                  <dt>Location</dt>
-                  <dd>{{ report.locationLabel }}</dd>
+
+              <article
+                class="admin-report-row"
+                [class.is-active]="selectedReportId === report.id"
+                [class.is-addressed]="reportState(report) === 'addressed'"
+                *ngFor="let report of filteredReports"
+              >
+                <div class="admin-report-row__state">
+                  <div
+                    class="admin-report-state-picker admin-report-state-picker--list"
+                    [class.is-open]="isReportStatePickerOpen(report)"
+                    (click)="$event.stopPropagation()"
+                  >
+                    <span class="admin-report-state-picker__label">State</span>
+                    <button
+                      class="admin-report-state-picker__button"
+                      type="button"
+                      [class.is-addressed]="reportState(report) === 'addressed'"
+                      [attr.aria-expanded]="isReportStatePickerOpen(report)"
+                      [attr.aria-label]="'Change report state, currently ' + reportStateLabel(report.state)"
+                      aria-haspopup="listbox"
+                      (click)="toggleReportStatePicker(report, $event)"
+                      [disabled]="!report.id || isReportStateSaving(report) || isReportDeleting(report)"
+                    >
+                      <span>{{ reportStateLabel(report.state) }}</span>
+                    </button>
+                    <div class="admin-report-state-picker__menu" *ngIf="isReportStatePickerOpen(report)" role="listbox">
+                      <button
+                        class="admin-report-state-picker__option"
+                        type="button"
+                        *ngFor="let state of reportStates"
+                        role="option"
+                        [class.is-selected]="reportState(report) === state"
+                        [attr.aria-selected]="reportState(report) === state"
+                        (click)="chooseReportState(report, state, $event)"
+                        [disabled]="!report.id || isReportStateSaving(report) || isReportDeleting(report)"
+                      >
+                        {{ reportStateLabel(state) }}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <dt>Coordinates</dt>
-                  <dd>{{ report.lat | number:'1.5-5' }}, {{ report.lng | number:'1.5-5' }}</dd>
+
+                <div class="admin-report-row__summary">
+                  <div class="admin-report-row__primary">
+                    <span
+                      class="admin-report-amount-icon"
+                      [ngClass]="'admin-report-amount-icon--' + reportAmountLevel(report)"
+                      [attr.aria-label]="reportAmountLabel(report)"
+                      [attr.title]="reportAmountLabel(report)"
+                      role="img"
+                    >
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </span>
+                    <a class="admin-report-row__map" [href]="reportMapLink(report)" target="_blank" rel="noopener">Open map</a>
+                  </div>
+                  <div class="admin-report-row__meta">
+                    <span>{{ formatReportDate(report) }}</span>
+                    <span *ngIf="report.photos?.length">{{ report.photos?.length }} photo{{ report.photos?.length === 1 ? '' : 's' }}</span>
+                  </div>
                 </div>
-                <div>
-                  <dt>Details</dt>
-                  <dd>{{ report.comment || 'No details provided.' }}</dd>
+
+                <div class="admin-report-row__actions">
+                  <button class="btn btn--secondary" type="button" (click)="selectReport(report)">Details</button>
+                  <button
+                    class="btn btn--danger"
+                    type="button"
+                    (click)="deleteReport(report)"
+                    [disabled]="!report.id || isReportDeleting(report)"
+                  >
+                    {{ isReportDeleting(report) ? 'Deleting...' : 'Delete' }}
+                  </button>
                 </div>
-                <div>
-                  <dt>Contact</dt>
-                  <dd>{{ report.contact || 'Not provided.' }}</dd>
-                </div>
-              </dl>
-              <div class="admin-photo-grid" *ngIf="report.photos?.length">
-                <a
-                  class="admin-photo-thumb"
-                  *ngFor="let photo of report.photos"
-                  [href]="photo.dataUrl"
-                  target="_blank"
-                  rel="noopener"
-                  [attr.aria-label]="'Open ' + photo.fileName"
-                >
-                  <img [src]="photo.dataUrl" [alt]="photo.fileName" />
-                </a>
-              </div>
-            </article>
+              </article>
+            </div>
           </div>
 
           <ng-template #noReports>
@@ -294,42 +378,68 @@
           <p class="admin__status" *ngIf="statusMessage">{{ statusMessage }}</p>
           <p class="admin__error" role="alert" *ngIf="errorMessage || litterPicksError">{{ errorMessage || litterPicksError }}</p>
 
-          <div class="admin__table-wrapper" *ngIf="litterPickEvents.length; else noLitterPickEvents">
-            <table class="admin__table">
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Expected</th>
-                  <th>Coverage</th>
-                  <th>Bags</th>
-                  <th>Volunteers</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let event of litterPickEvents; let i = index">
-                  <td>Community litter pick</td>
-                  <td>{{ formatLitterPickDate(event) }}</td>
-                  <td>
-                    <span class="admin__pill" [class.admin__pill--closed]="event.status === 'closed'">
-                      {{ event.status }}
-                    </span>
-                  </td>
-                  <td>{{ event.registeredCount || 0 }}</td>
-                  <td>{{ coveragePercent(event) }}%</td>
-                  <td>{{ totalBags(event) }}</td>
-                  <td>{{ totalVolunteers(event) }}</td>
-                  <td class="admin__table-actions">
-                    <button class="btn btn--secondary" type="button" (click)="toggleLitterPickDetails(i)">
-                      {{ event.status === 'closed' ? 'Report' : 'Manage' }}
-                    </button>
-                    <button class="btn btn--danger" type="button" (click)="deleteLitterPickEvent(i)">Delete</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="admin-litter-pick-list" *ngIf="litterPickEvents.length; else noLitterPickEvents">
+            <article
+              class="admin-litter-pick-list__item"
+              [class.is-closed]="event.status === 'closed'"
+              *ngFor="let event of litterPickEvents; let i = index"
+            >
+              <div class="admin-litter-pick-list__main">
+                <div class="admin-litter-pick-list__title">
+                  <span class="admin__pill" [class.admin__pill--closed]="event.status === 'closed'">
+                    {{ event.status }}
+                  </span>
+                  <p>{{ formatLitterPickDate(event) }}</p>
+                </div>
+                <div class="admin__history-stack" aria-label="Litter pick history">
+                  <span
+                    class="admin__history-avatar"
+                    tabindex="0"
+                    [attr.title]="creatorHistoryLabel(event)"
+                    [attr.aria-label]="creatorHistoryLabel(event)"
+                  >
+                    <img *ngIf="creatorAvatar(event); else adminLitterPickCreatorInitials" [src]="creatorAvatar(event)" alt="" />
+                    <ng-template #adminLitterPickCreatorInitials>{{ creatorInitials(event) }}</ng-template>
+                  </span>
+                  <span
+                    class="admin__history-avatar admin__history-avatar--edited"
+                    *ngIf="showUpdaterAvatar(event)"
+                    tabindex="0"
+                    [attr.title]="updaterHistoryLabel(event)"
+                    [attr.aria-label]="updaterHistoryLabel(event)"
+                  >
+                    <img *ngIf="updaterAvatar(event); else adminLitterPickUpdaterInitials" [src]="updaterAvatar(event)" alt="" />
+                    <ng-template #adminLitterPickUpdaterInitials>{{ updaterInitials(event) }}</ng-template>
+                  </span>
+                </div>
+              </div>
+
+              <dl class="admin-litter-pick-list__stats">
+                <div>
+                  <dt>Expected</dt>
+                  <dd>{{ event.registeredCount || 0 }}</dd>
+                </div>
+                <div>
+                  <dt>Coverage</dt>
+                  <dd>{{ coveragePercent(event) }}%</dd>
+                </div>
+                <div>
+                  <dt>Bags</dt>
+                  <dd>{{ totalBags(event) }}</dd>
+                </div>
+                <div>
+                  <dt>Volunteers</dt>
+                  <dd>{{ totalVolunteers(event) }}</dd>
+                </div>
+              </dl>
+
+              <div class="admin-litter-pick-list__actions">
+                <button class="btn btn--secondary" type="button" (click)="openLitterPickDetails(i)">
+                  Details
+                </button>
+                <button class="btn btn--danger" type="button" (click)="deleteLitterPickEvent(i)" *ngIf="canDeleteContent">Delete</button>
+              </div>
+            </article>
           </div>
           <ng-template #noLitterPickEvents>
             <div class="card">
@@ -338,7 +448,7 @@
           </ng-template>
         </section>
 
-        <section class="admin-section" *ngIf="activeAdminSection === 'users'" aria-labelledby="users-admin-title">
+        <section class="admin-section" *ngIf="activeAdminSection === 'users' && canManageUsers" aria-labelledby="users-admin-title">
           <div class="admin-section__header">
             <div>
               <p class="admin-section__eyebrow">Users</p>
@@ -390,6 +500,7 @@
                       (ngModelChange)="setUserRole(user, $event)"
                       [disabled]="currentUser?.id === user.id"
                     >
+                      <option value="User">User</option>
                       <option value="Editor">Editor</option>
                       <option value="Admin">Admin</option>
                     </select>
@@ -421,6 +532,14 @@
                     >
                       {{ selectedUserDisabled(user) ? 'Enable' : 'Disable' }}
                     </button>
+                    <button
+                      class="btn btn--danger"
+                      type="button"
+                      (click)="deleteUser(user)"
+                      [disabled]="currentUser?.id === user.id"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -437,7 +556,125 @@
   </div>
 </section>
 
-<div class="admin__sheet-backdrop" *ngIf="showUserCreateForm" (click)="toggleUserCreateForm()">
+<div class="admin__sheet-backdrop" *ngIf="selectedReport as detailReport" (click)="closeReportDetails()">
+  <div class="admin__sheet admin__sheet--report" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <div class="admin__sheet-header admin__sheet-header--report">
+      <div class="admin-report-sheet-title">
+        <p class="admin-section__eyebrow">Litter report</p>
+        <h3 class="visually-hidden">{{ reportAmountLabel(detailReport) }}</h3>
+        <div class="admin-report-sheet-title__meta">
+          <span
+            class="admin-report-amount-icon admin-report-amount-icon--header"
+            [ngClass]="'admin-report-amount-icon--' + reportAmountLevel(detailReport)"
+            [attr.aria-label]="reportAmountLabel(detailReport)"
+            [attr.title]="reportAmountLabel(detailReport)"
+            role="img"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+          <div
+            class="admin-report-state-picker admin-report-state-picker--header"
+            [class.is-open]="isReportStatePickerOpen(detailReport)"
+            (click)="$event.stopPropagation()"
+          >
+            <span class="admin-report-state-picker__label">State</span>
+            <button
+              class="admin-report-state-picker__button"
+              type="button"
+              [class.is-addressed]="reportState(detailReport) === 'addressed'"
+              [attr.aria-expanded]="isReportStatePickerOpen(detailReport)"
+              [attr.aria-label]="'Change report state, currently ' + reportStateLabel(detailReport.state)"
+              aria-haspopup="listbox"
+              (click)="toggleReportStatePicker(detailReport, $event)"
+              [disabled]="!detailReport.id || isReportStateSaving(detailReport) || isReportDeleting(detailReport)"
+            >
+              <span>{{ reportStateLabel(detailReport.state) }}</span>
+            </button>
+            <div class="admin-report-state-picker__menu" *ngIf="isReportStatePickerOpen(detailReport)" role="listbox">
+              <button
+                class="admin-report-state-picker__option"
+                type="button"
+                *ngFor="let state of reportStates"
+                role="option"
+                [class.is-selected]="reportState(detailReport) === state"
+                [attr.aria-selected]="reportState(detailReport) === state"
+                (click)="chooseReportState(detailReport, state, $event)"
+                [disabled]="!detailReport.id || isReportStateSaving(detailReport) || isReportDeleting(detailReport)"
+              >
+                {{ reportStateLabel(state) }}
+              </button>
+            </div>
+          </div>
+          <span>{{ formatReportDate(detailReport) }}</span>
+          <span *ngIf="detailReport.photos?.length">{{ detailReport.photos?.length }} photo{{ detailReport.photos?.length === 1 ? '' : 's' }}</span>
+        </div>
+      </div>
+      <button class="admin__sheet-close" type="button" (click)="closeReportDetails()">×</button>
+    </div>
+
+    <div class="admin-report-modal">
+      <div class="admin-report-modal__toolbar">
+        <div class="admin-report-modal__actions">
+          <a [href]="reportMapLink(detailReport)" target="_blank" rel="noopener">Open map</a>
+          <button
+            class="btn btn--danger"
+            type="button"
+            (click)="deleteReport(detailReport)"
+            [disabled]="!detailReport.id || isReportDeleting(detailReport)"
+          >
+            {{ isReportDeleting(detailReport) ? 'Deleting...' : 'Delete' }}
+          </button>
+        </div>
+      </div>
+
+      <dl class="admin__report-details">
+        <div>
+          <dt>Coordinates</dt>
+          <dd>{{ detailReport.lat | number:'1.5-5' }}, {{ detailReport.lng | number:'1.5-5' }}</dd>
+        </div>
+        <div class="admin__report-detail admin__report-detail--wide">
+          <dt>Details</dt>
+          <dd>{{ detailReport.comment || 'No details provided.' }}</dd>
+        </div>
+        <div>
+          <dt>Contact</dt>
+          <dd>{{ detailReport.contact || 'Not provided.' }}</dd>
+        </div>
+      </dl>
+
+      <section class="admin-report-photos" *ngIf="detailReport.photos?.length" aria-label="Report photos">
+        <div class="admin-report-photos__header">
+          <h4>Photos</h4>
+          <span>{{ detailReport.photos?.length }}</span>
+        </div>
+        <div class="admin-photo-grid admin-photo-grid--reports">
+          <button
+            class="admin-photo-thumb admin-photo-thumb--button"
+            type="button"
+            *ngFor="let photo of detailReport.photos"
+            (click)="openReportPhoto(photo)"
+            [attr.aria-label]="'Enlarge ' + photo.fileName"
+          >
+            <img [src]="photo.dataUrl" [alt]="photo.fileName" />
+            <span>Enlarge</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="admin-photo-lightbox" *ngIf="activeReportPhoto" role="dialog" aria-modal="true" (click)="closeReportPhoto()">
+  <div class="admin-photo-lightbox__panel" (click)="$event.stopPropagation()">
+    <button class="admin__sheet-close" type="button" (click)="closeReportPhoto()" aria-label="Close enlarged photo">×</button>
+    <img [src]="activeReportPhoto.dataUrl" [alt]="activeReportPhoto.fileName" />
+    <p>{{ activeReportPhoto.fileName }}</p>
+  </div>
+</div>
+
+<div class="admin__sheet-backdrop" *ngIf="showUserCreateForm && canManageUsers" (click)="toggleUserCreateForm()">
   <div class="admin__sheet admin__sheet--user-create" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
     <div class="admin__sheet-header">
       <div>
@@ -462,6 +699,7 @@
       <div class="admin__field">
         <label for="new-user-role">Role</label>
         <select id="new-user-role" [(ngModel)]="newUser.role">
+          <option value="User">User</option>
           <option value="Editor">Editor</option>
           <option value="Admin">Admin</option>
         </select>
@@ -694,7 +932,7 @@
       >
         <div class="litter-tile-map__tiles" aria-hidden="true">
           <img
-            *ngFor="let tile of litterPickVisibleTiles"
+            *ngFor="let tile of litterPickVisibleTiles; trackBy: trackByMapTile"
             class="litter-tile-map__tile"
             [src]="tile.url"
             alt=""
@@ -732,6 +970,27 @@
       <div>
         <h3>Event details</h3>
         <p class="admin__hint">Fields are read-only until you click Edit.</p>
+        <div class="admin__history-stack admin__history-stack--sheet" *ngIf="draftEvent" aria-label="Event history">
+          <span
+            class="admin__history-avatar"
+            tabindex="0"
+            [attr.title]="creatorHistoryLabel(draftEvent)"
+            [attr.aria-label]="creatorHistoryLabel(draftEvent)"
+          >
+            <img *ngIf="creatorAvatar(draftEvent); else adminDraftEventCreatorInitials" [src]="creatorAvatar(draftEvent)" alt="" />
+            <ng-template #adminDraftEventCreatorInitials>{{ creatorInitials(draftEvent) }}</ng-template>
+          </span>
+          <span
+            class="admin__history-avatar admin__history-avatar--edited"
+            *ngIf="showUpdaterAvatar(draftEvent)"
+            tabindex="0"
+            [attr.title]="updaterHistoryLabel(draftEvent)"
+            [attr.aria-label]="updaterHistoryLabel(draftEvent)"
+          >
+            <img *ngIf="updaterAvatar(draftEvent); else adminDraftEventUpdaterInitials" [src]="updaterAvatar(draftEvent)" alt="" />
+            <ng-template #adminDraftEventUpdaterInitials>{{ updaterInitials(draftEvent) }}</ng-template>
+          </span>
+        </div>
       </div>
       <button class="admin__sheet-close" type="button" (click)="closeDetails()">×</button>
     </div>
@@ -846,6 +1105,27 @@
         <p class="admin__hint">
           {{ draftLitterPickEvent.status === 'closed' ? 'This event is closed and read-only.' : 'Edit event details, add teams and record returns.' }}
         </p>
+        <div class="admin__history-stack admin__history-stack--sheet" aria-label="Litter pick history">
+          <span
+            class="admin__history-avatar"
+            tabindex="0"
+            [attr.title]="creatorHistoryLabel(draftLitterPickEvent)"
+            [attr.aria-label]="creatorHistoryLabel(draftLitterPickEvent)"
+          >
+            <img *ngIf="creatorAvatar(draftLitterPickEvent); else adminDraftLitterPickCreatorInitials" [src]="creatorAvatar(draftLitterPickEvent)" alt="" />
+            <ng-template #adminDraftLitterPickCreatorInitials>{{ creatorInitials(draftLitterPickEvent) }}</ng-template>
+          </span>
+          <span
+            class="admin__history-avatar admin__history-avatar--edited"
+            *ngIf="showUpdaterAvatar(draftLitterPickEvent)"
+            tabindex="0"
+            [attr.title]="updaterHistoryLabel(draftLitterPickEvent)"
+            [attr.aria-label]="updaterHistoryLabel(draftLitterPickEvent)"
+          >
+            <img *ngIf="updaterAvatar(draftLitterPickEvent); else adminDraftLitterPickUpdaterInitials" [src]="updaterAvatar(draftLitterPickEvent)" alt="" />
+            <ng-template #adminDraftLitterPickUpdaterInitials>{{ updaterInitials(draftLitterPickEvent) }}</ng-template>
+          </span>
+        </div>
       </div>
       <button class="admin__sheet-close" type="button" (click)="closeLitterPickDetails()">×</button>
     </div>
@@ -872,6 +1152,9 @@
         *ngIf="draftLitterPickEvent.status === 'open'"
       >
         Close event
+      </button>
+      <button class="btn btn--danger" type="button" (click)="deleteCurrentLitterPickEvent()" *ngIf="canDeleteContent">
+        Delete event
       </button>
     </div>
     <div class="admin__sheet-feedback" *ngIf="statusMessage || errorMessage || litterPicksError">
@@ -1038,17 +1321,39 @@
               draftLitterPickEvent.status === 'closed'
                 ? 'Map is read-only.'
                 : litterPickMapMode === 'draw'
-                  ? 'Trace the team coverage area on the map.'
+                  ? 'Trace the selected team coverage area on the map.'
                   : litterPickMapMode === 'meeting'
                     ? 'Click the map to set the optional start coordinates.'
                   : litterPickMapMode === 'edit'
                     ? 'Drag a point to reshape, or drag the centre marker to move the team area.'
-                  : 'Move the map, or add a team to draw coverage.'
+                  : 'Move the map, add a team, then draw coverage or list streets.'
             }}
           </p>
         </div>
         <div class="litter-map__actions">
-          <button class="btn btn--secondary" type="button" (click)="toggleLitterPickWorkspaceFullscreen()">
+          <form class="litter-map-search" role="search" (ngSubmit)="searchLitterPickStreet()">
+            <label class="visually-hidden" for="litter-pick-street-search">Search street</label>
+            <input
+              id="litter-pick-street-search"
+              type="search"
+              name="litterPickStreetSearch"
+              [(ngModel)]="litterPickStreetSearch"
+              placeholder="Search street"
+              autocomplete="street-address"
+              [disabled]="litterPickStreetSearchLoading"
+            />
+            <button
+              class="btn btn--secondary"
+              type="submit"
+              [disabled]="litterPickStreetSearchLoading || !litterPickStreetSearch.trim()"
+            >
+              {{ litterPickStreetSearchLoading ? 'Searching...' : 'Search' }}
+            </button>
+            <span class="litter-map-search__status" aria-live="polite" *ngIf="litterPickStreetSearchMessage">
+              {{ litterPickStreetSearchMessage }}
+            </span>
+          </form>
+          <button class="btn btn--secondary litter-map-fullscreen-button" type="button" (click)="toggleLitterPickWorkspaceFullscreen()">
             {{ litterPickWorkspaceFullscreen ? 'Exit full screen' : 'Full screen' }}
           </button>
         </div>
@@ -1080,7 +1385,7 @@
           >
             <div class="litter-tile-map__tiles" aria-hidden="true">
               <img
-                *ngFor="let tile of litterPickVisibleTiles"
+                *ngFor="let tile of litterPickVisibleTiles; trackBy: trackByMapTile"
                 class="litter-tile-map__tile"
                 [src]="tile.url"
                 alt=""
@@ -1104,13 +1409,13 @@
                 type="button"
                 (click)="startNewTeamArea(); $event.stopPropagation()"
                 [disabled]="draftLitterPickEvent.status === 'closed' || !hasAvailableTeamSticker()"
-                [attr.title]="hasAvailableTeamSticker() ? 'Add a new team coverage area' : 'All 40 team stickers have been used'"
-                aria-label="Add a new team coverage area"
+                [attr.title]="hasAvailableTeamSticker() ? 'Add a team, then choose draw or street coverage' : 'All 40 team stickers have been used'"
+                aria-label="Add a team"
               >
                 + Team
               </button>
               <span *ngIf="isEditingLitterPick && !hasAvailableTeamSticker()">All stickers used</span>
-              <span *ngIf="isEditingLitterPick && litterPickMapMode === 'draw'">Drawing</span>
+              <span *ngIf="isEditingLitterPick && litterPickMapMode === 'draw'">Drawing coverage</span>
             </div>
             <svg class="litter-tile-map__overlay" [attr.viewBox]="litterPickMapViewBox" aria-hidden="true">
               <polygon class="litter-tile-map__boundary" [attr.points]="litterPickBoundaryPixelPointsAttribute"></polygon>
@@ -1118,27 +1423,41 @@
                 <circle r="18"></circle>
                 <text text-anchor="middle" dominant-baseline="central" y="1">{{ defaultMeetingPoint.icon }}</text>
               </g>
-              <polygon
-                *ngFor="let area of draftLitterPickEvent.areas"
-                class="litter-map__area"
-                [class.is-active]="area.id === activeAreaId"
-                [attr.points]="areaPolygonPointsAttribute(area)"
-                (pointerdown)="selectArea(area.id); $event.stopPropagation()"
-                (click)="selectArea(area.id); $event.stopPropagation()"
-              ></polygon>
-              <g
-                *ngFor="let area of draftLitterPickEvent.areas"
-                class="litter-map__sticker"
-                [class.is-active]="area.id === activeAreaId"
-                [attr.transform]="areaStickerTransform(area)"
-                (pointerdown)="selectArea(area.id); $event.stopPropagation()"
-                (click)="selectArea(area.id); $event.stopPropagation()"
-              >
-                <circle r="16" [attr.fill]="area.stickerTint" [attr.stroke]="area.stickerStroke"></circle>
-                <text text-anchor="middle" dominant-baseline="central" y="1">{{ area.stickerIcon }}</text>
-              </g>
-              <ng-container *ngFor="let area of draftLitterPickEvent.areas">
-                <g *ngIf="isEditingLitterPick && area.id === editingAreaId" class="litter-map__edit-controls">
+              <ng-container *ngFor="let area of draftLitterPickEvent.areas; trackBy: trackByArea">
+                <polygon
+                  *ngFor="let polygon of areaCoveragePolygons(area); let polygonIndex = index; trackBy: trackByIndex"
+                  class="litter-map__area"
+                  [class.is-active]="area.id === activeAreaId"
+                  [class.is-editing]="isEditingAreaPolygon(area.id, polygonIndex)"
+                  [attr.points]="mapPolygonPointsAttribute(polygon)"
+                  (pointerdown)="selectArea(area.id); $event.stopPropagation()"
+                  (click)="selectArea(area.id); $event.stopPropagation()"
+                ></polygon>
+              </ng-container>
+              <ng-container *ngFor="let area of draftLitterPickEvent.areas; trackBy: trackByArea">
+                <polygon
+                  *ngFor="let polygon of streetPreviewPolygonsFor(area); trackBy: trackByIndex"
+                  class="litter-map__area litter-map__area--preview"
+                  [attr.points]="mapPolygonPointsAttribute(polygon)"
+                  (pointerdown)="selectArea(area.id); $event.stopPropagation()"
+                  (click)="selectArea(area.id); $event.stopPropagation()"
+                ></polygon>
+              </ng-container>
+              <ng-container *ngFor="let area of draftLitterPickEvent.areas; trackBy: trackByArea">
+                <g
+                  *ngIf="areaHasMapCoverage(area)"
+                  class="litter-map__sticker"
+                  [class.is-active]="area.id === activeAreaId"
+                  [attr.transform]="areaStickerTransform(area)"
+                  (pointerdown)="selectArea(area.id); $event.stopPropagation()"
+                  (click)="selectArea(area.id); $event.stopPropagation()"
+                >
+                  <circle r="16" [attr.fill]="area.stickerTint" [attr.stroke]="area.stickerStroke"></circle>
+                  <text text-anchor="middle" dominant-baseline="central" y="1">{{ area.stickerIcon }}</text>
+                </g>
+              </ng-container>
+              <ng-container *ngFor="let area of draftLitterPickEvent.areas; trackBy: trackByArea">
+                <g *ngIf="isEditingLitterPick && areaCanEditMapCoverage(area) && area.id === editingAreaId" class="litter-map__edit-controls">
                   <circle
                     class="litter-map__move-handle"
                     [attr.cx]="areaMoveHandlePosition(area).x"
@@ -1147,7 +1466,7 @@
                     (pointerdown)="beginAreaMoveDrag($event, area.id); $event.stopPropagation()"
                   ></circle>
                   <circle
-                    *ngFor="let handle of areaEditHandlePositions(area); let pointIndex = index"
+                    *ngFor="let handle of areaEditHandlePositions(area); let pointIndex = index; trackBy: trackByIndex"
                     class="litter-map__vertex-handle"
                     [attr.cx]="handle.x"
                     [attr.cy]="handle.y"
@@ -1169,8 +1488,9 @@
             <div class="litter-area-list" *ngIf="draftLitterPickEvent.areas.length; else noPickAreas">
               <article
                 class="litter-area-card"
-                *ngFor="let area of draftLitterPickEvent.areas"
+                *ngFor="let area of draftLitterPickEvent.areas; trackBy: trackByArea"
                 [class.is-active]="area.id === activeAreaId"
+                [class.is-unmapped]="!areaHasMapCoverage(area)"
                 [attr.data-litter-area-id]="area.id"
                 tabindex="-1"
                 (click)="selectArea(area.id)"
@@ -1189,18 +1509,19 @@
                   <input type="text" [(ngModel)]="area.label" [disabled]="!isEditingLitterPick" aria-label="Team label" />
                   <button
                     class="litter-icon-btn litter-icon-btn--edit"
-                    [class.is-active]="editingAreaId === area.id"
+                    *ngIf="areaCanEditMapCoverage(area)"
+                    [class.is-active]="editingAreaId === area.id && editingAreaControlMode === 'polygon'"
                     type="button"
                     (click)="toggleAreaEdit(area.id); $event.stopPropagation()"
                     [disabled]="draftLitterPickEvent.status === 'closed'"
-                    [attr.aria-label]="editingAreaId === area.id ? 'Finish editing team area' : 'Edit team area'"
-                    [attr.title]="editingAreaId === area.id ? 'Done editing area' : 'Edit area'"
+                    [attr.aria-label]="editingAreaId === area.id && editingAreaControlMode === 'polygon' ? 'Finish editing team area' : 'Edit team area'"
+                    [attr.title]="editingAreaId === area.id && editingAreaControlMode === 'polygon' ? 'Done editing area' : 'Edit area'"
                   >
-                    <svg *ngIf="editingAreaId !== area.id" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg *ngIf="editingAreaId !== area.id || editingAreaControlMode !== 'polygon'" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 20h9" />
                       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
                     </svg>
-                    <svg *ngIf="editingAreaId === area.id" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg *ngIf="editingAreaId === area.id && editingAreaControlMode === 'polygon'" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M20 6 9 17l-5-5" />
                     </svg>
                   </button>
@@ -1221,6 +1542,17 @@
                     </svg>
                   </button>
                 </div>
+                <div class="litter-area-card__coverage-actions" *ngIf="isEditingLitterPick && draftLitterPickEvent.status !== 'closed'">
+                  <button
+                    class="btn btn--secondary"
+                    type="button"
+                    (click)="startTeamAreaDraw(area.id); $event.stopPropagation()"
+                    [class.is-active]="drawingAreaId === area.id && litterPickMapMode === 'draw'"
+                  >
+                    {{ areaHasMapCoverage(area) ? 'Redraw area' : 'Draw area' }}
+                  </button>
+                  <span>or add streets below to map coverage automatically</span>
+                </div>
                 <div class="admin__grid admin__grid--compact litter-area-card__stats">
                   <div class="admin__field">
                     <label [for]="'bags-' + area.id">Bags</label>
@@ -1232,15 +1564,193 @@
                   </div>
                 </div>
                 <div class="admin__field">
+                  <div class="litter-street-header">
+                    <label [for]="'area-street-new-' + area.id">Streets covered</label>
+                    <span>{{ areaCoverageCountLabel(area) }}</span>
+                    <button
+                      class="litter-icon-btn litter-icon-btn--collapse"
+                      type="button"
+                      (click)="toggleAreaStreets(area.id); $event.stopPropagation()"
+                      [attr.aria-expanded]="isAreaStreetsExpanded(area)"
+                      [attr.aria-label]="isAreaStreetsExpanded(area) ? 'Collapse streets covered' : 'Expand streets covered'"
+                      [attr.title]="isAreaStreetsExpanded(area) ? 'Collapse streets covered' : 'Expand streets covered'"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path *ngIf="!isAreaStreetsExpanded(area)" d="m6 9 6 6 6-6" />
+                        <path *ngIf="isAreaStreetsExpanded(area)" d="m18 15-6-6-6 6" />
+                      </svg>
+                    </button>
+                  </div>
+                  <p class="litter-street-summary" *ngIf="!isAreaStreetsExpanded(area)">
+                    {{ areaStreetSummary(area) }}
+                  </p>
+                  <ng-container *ngIf="isAreaStreetsExpanded(area)">
+                  <ng-container *ngIf="isEditingLitterPick; else readonlyAreaStreets">
+                    <div class="litter-street-list" *ngIf="areaCoverageRows(area).length; else noAreaStreets">
+                      <div
+                        class="litter-street-item"
+                        *ngFor="let item of areaCoverageRows(area); let itemIndex = index; trackBy: trackByCoverageItem"
+                      >
+                        <div class="litter-coverage-kind" role="group" aria-label="Coverage source">
+                          <button
+                            type="button"
+                            [class.is-active]="item.kind === 'street'"
+                            (click)="setAreaCoverageItemKind(area, itemIndex, 'street'); $event.stopPropagation()"
+                          >
+                            Street
+                          </button>
+                          <button
+                            type="button"
+                            [class.is-active]="item.kind === 'drawn'"
+                            (click)="setAreaCoverageItemKind(area, itemIndex, 'drawn'); $event.stopPropagation()"
+                          >
+                            Draw
+                          </button>
+                        </div>
+                        <span class="litter-street-input-shell">
+                          <ng-container *ngIf="item.kind === 'street'; else drawnCoverageLabel">
+                            <input
+                              type="text"
+                              [ngModel]="item.streetName || ''"
+                              (ngModelChange)="setAreaCoverageItemStreetName(area, itemIndex, $event)"
+                              (keydown.enter)="updateAreaCoverageItemStreet(area, itemIndex); $event.preventDefault(); $event.stopPropagation()"
+                              [attr.aria-label]="'Street covered ' + (itemIndex + 1)"
+                            />
+                            <span
+                              class="litter-street-spinner"
+                              *ngIf="isAreaStreetLookupBusy(area.id, 'street-' + itemIndex)"
+                              role="status"
+                              aria-label="Finding street coverage"
+                            ></span>
+                          </ng-container>
+                          <ng-template #drawnCoverageLabel>
+                            <input
+                              type="text"
+                              [ngModel]="item.label || ''"
+                              (ngModelChange)="setAreaCoverageItemLabel(area, itemIndex, $event)"
+                              [attr.aria-label]="'Drawn coverage label ' + (itemIndex + 1)"
+                              placeholder="Drawn area"
+                            />
+                          </ng-template>
+                        </span>
+                        <span class="litter-street-actions">
+                          <button
+                            class="litter-icon-btn litter-icon-btn--focus"
+                            type="button"
+                            (click)="focusAreaCoverageItem(area, itemIndex); $event.stopPropagation()"
+                            [disabled]="!coverageItemCanFocus(item)"
+                            [attr.aria-label]="'Focus ' + (coverageItemDisplay(item, itemIndex) || 'coverage item')"
+                            [attr.title]="'Focus ' + (coverageItemDisplay(item, itemIndex) || 'coverage item')"
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M12 2v4" />
+                              <path d="M12 18v4" />
+                              <path d="M2 12h4" />
+                              <path d="M18 12h4" />
+                            </svg>
+                          </button>
+                          <button
+                            *ngIf="item.kind === 'street'; else drawCoverageButton"
+                            class="litter-icon-btn litter-icon-btn--edit"
+                            [class.is-active]="isEditingAreaStreetCoverage(area, itemIndex)"
+                            type="button"
+                            (click)="toggleAreaCoverageItemEdit(area, itemIndex); $event.stopPropagation()"
+                            [attr.aria-label]="isEditingAreaStreetCoverage(area, itemIndex) ? 'Finish editing street coverage shape' : 'Edit street coverage shape'"
+                            [attr.title]="isEditingAreaStreetCoverage(area, itemIndex) ? 'Finish editing street coverage shape' : 'Edit street coverage shape'"
+                          >
+                            <svg *ngIf="!isEditingAreaStreetCoverage(area, itemIndex)" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                            </svg>
+                            <svg *ngIf="isEditingAreaStreetCoverage(area, itemIndex)" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          </button>
+                          <ng-template #drawCoverageButton>
+                            <button
+                              class="btn btn--secondary litter-street-draw-btn"
+                              type="button"
+                              (click)="drawAreaCoverageItem(area, itemIndex); $event.stopPropagation()"
+                            >
+                              {{ isDrawingAreaCoverageItem(area, itemIndex) ? 'Drawing' : item.polygon ? 'Redraw' : 'Draw' }}
+                            </button>
+                          </ng-template>
+                        </span>
+                        <button
+                          class="litter-icon-btn litter-icon-btn--delete"
+                          type="button"
+                          (click)="removeAreaCoverageItem(area, itemIndex); $event.stopPropagation()"
+                          aria-label="Remove coverage item"
+                          title="Remove coverage item"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="m6 6 1 15h10l1-15" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <ng-template #noAreaStreets>
+                      <p class="admin__field-note">No streets added yet.</p>
+                    </ng-template>
+                    <form class="litter-street-add" (ngSubmit)="addAreaStreet(area); $event.stopPropagation()">
+                      <span class="litter-street-input-shell">
+                        <input
+                          [id]="'area-street-new-' + area.id"
+                          type="text"
+                          [ngModel]="newAreaStreetInputs[area.id] || ''"
+                          (ngModelChange)="setNewAreaStreetInput(area, $event)"
+                          [name]="'areaStreetNew-' + area.id"
+                          placeholder="Add street"
+                        />
+                        <span
+                          class="litter-street-spinner"
+                          *ngIf="isAreaStreetLookupBusy(area.id, 'new')"
+                          role="status"
+                          aria-label="Finding street coverage"
+                        ></span>
+                      </span>
+                      <button
+                        class="btn btn--secondary litter-street-add__submit"
+                        type="submit"
+                        [disabled]="!newAreaStreetInputs[area.id]?.trim()"
+                      >
+                        Add
+                      </button>
+                      <button
+                        class="btn btn--secondary litter-street-add__draw"
+                        type="button"
+                        (click)="addAreaDrawnCoverageItem(area); $event.stopPropagation()"
+                      >
+                        Draw area
+                      </button>
+                    </form>
+                  </ng-container>
+                  <ng-template #readonlyAreaStreets>
+                    <p class="litter-street-readonly">{{ areaStreetDisplay(area) || 'No streets listed.' }}</p>
+                  </ng-template>
+                  </ng-container>
+                  <span class="admin__field-note" aria-live="polite" *ngIf="areaStreetLookupMessages[area.id]">
+                    {{ areaStreetLookupMessages[area.id] }}
+                  </span>
+                </div>
+                <div class="admin__field">
                   <label [for]="'area-notes-' + area.id">Notes</label>
                   <textarea [id]="'area-notes-' + area.id" rows="2" [(ngModel)]="area.notes" [disabled]="!isEditingLitterPick"></textarea>
                 </div>
-                <p class="admin__hint">Approx. {{ areaCoveragePercent(area) }}% of Hethersett.</p>
+                <p class="admin__hint" *ngIf="areaHasMapCoverage(area); else streetDefinedAreaHint">Approx. {{ areaCoveragePercent(area) }}% of Hethersett.</p>
+                <ng-template #streetDefinedAreaHint>
+                  <p class="admin__hint">No coverage area yet. Draw an area or list streets above.</p>
+                </ng-template>
               </article>
             </div>
             <ng-template #noPickAreas>
               <div class="litter-empty">
-                <p>{{ isEditingLitterPick ? 'Use + Team on the map to add the first team.' : 'No team areas were added.' }}</p>
+                <p>{{ isEditingLitterPick ? 'Use + Team to add a team, then draw an area or list streets.' : 'No team areas were added.' }}</p>
               </div>
             </ng-template>
           </div>

@@ -1,4 +1,5 @@
 import { CommonModule } from '@angular/common';
+import { HttpEventType } from '@angular/common/http';
 import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LitterReport } from '../models/litter-report';
@@ -31,12 +32,18 @@ type PixelPoint = {
   styleUrls: ['./report-litter.component.css']
 })
 export class ReportLitterComponent implements AfterViewInit, OnDestroy {
+  private readonly maxReportPhotos = 8;
+  private readonly uploadPhotoMaxEdge = 1400;
+  private readonly uploadPhotoQuality = 0.78;
+
   selectedPoint?: ReportPoint;
   comment = '';
   contact = '';
   litterAmount = '';
   reportPrepared = false;
   submitting = false;
+  submitProgress = 0;
+  submitProgressMessage = '';
   submitError = '';
   copyStatus = '';
   locationStatus = '';
@@ -56,6 +63,7 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
   @ViewChild('reportMap') reportMap?: ElementRef<HTMLElement>;
 
   private resizeObserver?: ResizeObserver;
+  private submitUploadTotal = 0;
   private dragState?: {
     pointerId: number;
     startX: number;
@@ -325,19 +333,41 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
     }
 
     this.submitting = true;
+    this.submitProgress = 0;
+    this.submitProgressMessage = 'Preparing report...';
+    this.submitUploadTotal = this.estimateReportUploadSize(report);
     this.submitError = '';
     this.reportPrepared = false;
     this.copyStatus = '';
 
-    this.litterReportsService.submitReport(report).subscribe({
-      next: (savedReport) => {
-        this.submittedReport = savedReport;
-        this.reportPrepared = true;
-        this.submitting = false;
+    this.litterReportsService.submitReportWithProgress(report).subscribe({
+      next: (event) => {
+        if (event.type === HttpEventType.Sent) {
+          this.setSubmitProgress(1, 'Preparing report...');
+          return;
+        }
+
+        if (event.type === HttpEventType.UploadProgress) {
+          const progress = this.uploadProgressPercent(event.loaded, event.total);
+          this.setSubmitProgress(
+            progress,
+            progress >= 99 ? 'Saving report...' : this.uploadProgressMessage()
+          );
+          return;
+        }
+
+        if (event.type === HttpEventType.Response) {
+          this.submittedReport = event.body ?? report;
+          this.reportPrepared = true;
+          this.setSubmitProgress(100, 'Report submitted.');
+          this.submitting = false;
+        }
       },
       error: () => {
         this.submitError = 'Unable to submit the report. Please check the server and try again.';
         this.submitting = false;
+        this.submitProgress = 0;
+        this.submitProgressMessage = '';
       }
     });
   }
@@ -351,16 +381,24 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
 
     this.submitError = '';
     try {
+      const availableSlots = Math.max(0, this.maxReportPhotos - this.reportPhotos.length);
+      if (!availableSlots) {
+        this.submitError = `You can attach up to ${this.maxReportPhotos} photos.`;
+        return;
+      }
+
       const photos = await Promise.all(
         files
           .filter((file) => file.type.startsWith('image/'))
-          .slice(0, Math.max(0, 8 - this.reportPhotos.length))
-          .map(async (file) => ({
-            fileName: file.name,
-            contentType: file.type || 'image/jpeg',
-            dataUrl: await this.readFileAsDataUrl(file)
-          }))
+          .slice(0, availableSlots)
+          .map((file) => this.createPhotoAttachment(file))
       );
+
+      if (!photos.length) {
+        this.submitError = 'Please choose image files to attach.';
+        return;
+      }
+
       this.reportPhotos = [...this.reportPhotos, ...photos];
     } catch {
       this.submitError = 'Unable to read one of those photos.';
@@ -481,6 +519,29 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
     return Math.min(Math.max(value, min), max);
   }
 
+  private setSubmitProgress(value: number, message: string): void {
+    this.submitProgress = this.clamp(Math.round(value), 0, 100);
+    this.submitProgressMessage = message;
+  }
+
+  private uploadProgressPercent(loaded: number, total?: number): number {
+    const totalBytes = Math.max(total ?? this.submitUploadTotal, loaded, 1);
+    return this.clamp(Math.round((loaded / totalBytes) * 100), 1, 99);
+  }
+
+  private uploadProgressMessage(): string {
+    return this.reportPhotos.length ? 'Uploading photos and report...' : 'Uploading report...';
+  }
+
+  private estimateReportUploadSize(report: LitterReport): number {
+    const payload = JSON.stringify(report);
+    if (typeof TextEncoder === 'undefined') {
+      return Math.max(payload.length, 1);
+    }
+
+    return Math.max(new TextEncoder().encode(payload).length, 1);
+  }
+
   private currentReportPayload(): LitterReport | null {
     if (!this.selectedPoint) {
       return null;
@@ -498,6 +559,71 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
     };
   }
 
+  private async createPhotoAttachment(file: File): Promise<PhotoAttachment> {
+    const dataUrl = await this.readImageAsUploadDataUrl(file);
+    return {
+      fileName: file.name,
+      contentType: this.dataUrlContentType(dataUrl) || file.type || 'image/jpeg',
+      dataUrl
+    };
+  }
+
+  private async readImageAsUploadDataUrl(file: File): Promise<string> {
+    try {
+      return await this.compressImageFile(file);
+    } catch {
+      return this.readFileAsDataUrl(file);
+    }
+  }
+
+  private compressImageFile(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const image = new Image();
+
+      image.onload = () => {
+        try {
+          const sourceWidth = image.naturalWidth || image.width;
+          const sourceHeight = image.naturalHeight || image.height;
+
+          if (!sourceWidth || !sourceHeight) {
+            reject(new Error('Image has no dimensions.'));
+            return;
+          }
+
+          const scale = Math.min(1, this.uploadPhotoMaxEdge / Math.max(sourceWidth, sourceHeight));
+          const width = Math.max(1, Math.round(sourceWidth * scale));
+          const height = Math.max(1, Math.round(sourceHeight * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext('2d');
+
+          if (!context) {
+            reject(new Error('Unable to prepare image.'));
+            return;
+          }
+
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, width, height);
+          context.drawImage(image, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', this.uploadPhotoQuality));
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Unable to load image.'));
+      };
+
+      image.src = objectUrl;
+    });
+  }
+
   private readFileAsDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -505,5 +631,10 @@ export class ReportLitterComponent implements AfterViewInit, OnDestroy {
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
+  }
+
+  private dataUrlContentType(value?: string): string | null {
+    const match = /^data:([^;,]+)[;,]/.exec(value || '');
+    return match?.[1] || null;
   }
 }

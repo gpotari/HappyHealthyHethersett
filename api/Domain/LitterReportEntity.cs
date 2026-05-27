@@ -4,6 +4,7 @@ public class LitterReportEntity
 {
     public string Id { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string State { get; set; } = "new";
     public string LocationLabel { get; set; } = string.Empty;
     public double Lat { get; set; }
     public double Lng { get; set; }

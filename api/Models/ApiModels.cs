@@ -64,11 +64,42 @@ public record UpdateAccountRequest(string DisplayName, PhotoDto? Avatar, bool Cl
 
 public record UserDto(Guid Id, string Email, string DisplayName, string[] Roles, bool IsDisabled, DateTimeOffset CreatedAt, DateTimeOffset? LastLoginAt, string? AvatarDataUrl);
 
+public record EventCreatorDto(Guid Id, string DisplayName, string? AvatarDataUrl);
+
+public record UpdateLitterReportStateRequest(string State);
+
 public record LitterPickAttendanceRequest(bool Attending);
 
 public record LitterPickAttendanceResponse(string EventId, bool Attending);
 
 public record LitterPickAttendanceListResponse(string[] EventIds);
+
+public record PushNotificationConfigDto(bool Enabled, string? PublicKey);
+
+public record PushNotificationTestRequest(string? Endpoint, string? TestId);
+
+public record PushNotificationTestResponse(bool Ok, int Sent);
+
+public class PushSubscriptionRequest
+{
+    [JsonPropertyName("endpoint")]
+    public string Endpoint { get; set; } = string.Empty;
+
+    [JsonPropertyName("expirationTime")]
+    public long? ExpirationTime { get; set; }
+
+    [JsonPropertyName("keys")]
+    public PushSubscriptionKeysDto Keys { get; set; } = new();
+}
+
+public class PushSubscriptionKeysDto
+{
+    [JsonPropertyName("p256dh")]
+    public string P256dh { get; set; } = string.Empty;
+
+    [JsonPropertyName("auth")]
+    public string Auth { get; set; } = string.Empty;
+}
 
 public class PhotoDto
 {
@@ -128,6 +159,18 @@ public class EventDto
 
     [JsonPropertyName("photos")]
     public List<PhotoDto> Photos { get; set; } = new();
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset? CreatedAt { get; set; }
+
+    [JsonPropertyName("createdBy")]
+    public EventCreatorDto? CreatedBy { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    [JsonPropertyName("updatedBy")]
+    public EventCreatorDto? UpdatedBy { get; set; }
 }
 
 public class LitterReportDto
@@ -137,6 +180,9 @@ public class LitterReportDto
 
     [JsonPropertyName("createdAt")]
     public DateTimeOffset? CreatedAt { get; set; }
+
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
 
     [JsonPropertyName("locationLabel")]
     public string LocationLabel { get; set; } = string.Empty;
@@ -174,6 +220,12 @@ public class LitterPickAreaDto
     [JsonPropertyName("points")]
     public List<MapPointDto>? Points { get; set; }
 
+    [JsonPropertyName("coveragePolygons")]
+    public List<List<MapPointDto>>? CoveragePolygons { get; set; }
+
+    [JsonPropertyName("coverageItems")]
+    public List<LitterPickCoverageItemDto>? CoverageItems { get; set; }
+
     [JsonPropertyName("x")]
     public double? X { get; set; }
 
@@ -207,8 +259,32 @@ public class LitterPickAreaDto
     [JsonPropertyName("volunteers")]
     public int Volunteers { get; set; }
 
+    [JsonPropertyName("streetNames")]
+    public List<string>? StreetNames { get; set; }
+
+    [JsonPropertyName("streets")]
+    public string? Streets { get; set; }
+
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }
+}
+
+public class LitterPickCoverageItemDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "street";
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
+
+    [JsonPropertyName("streetName")]
+    public string? StreetName { get; set; }
+
+    [JsonPropertyName("polygon")]
+    public List<MapPointDto>? Polygon { get; set; }
 }
 
 public class MapPointDto
@@ -308,4 +384,10 @@ public class LitterPickEventDto
 
     [JsonPropertyName("updatedAt")]
     public DateTimeOffset? UpdatedAt { get; set; }
+
+    [JsonPropertyName("createdBy")]
+    public EventCreatorDto? CreatedBy { get; set; }
+
+    [JsonPropertyName("updatedBy")]
+    public EventCreatorDto? UpdatedBy { get; set; }
 }
