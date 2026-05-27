@@ -8,15 +8,77 @@
     </header>
 
     <div class="litter-pick-public__empty card" *ngIf="loading">
-      <p>Loading upcoming litter picks...</p>
+      <p>Loading community litter picks...</p>
     </div>
 
     <div class="litter-pick-public__empty card" *ngIf="!loading && error">
       <p>{{ error }}</p>
     </div>
 
-    <div class="litter-pick-public__grid" *ngIf="!loading && !error && litterPicks.length; else noLitterPicks">
-      <article class="litter-pick-card" *ngFor="let event of litterPicks; let i = index">
+    <div class="litter-pick-public__events" *ngIf="!loading && !error && (upcomingLitterPicks.length || completedLitterPicks.length); else noLitterPicks">
+      <div class="litter-pick-public__grid" *ngIf="upcomingLitterPicks.length">
+        <ng-container *ngFor="let event of upcomingLitterPicks; let i = index">
+          <ng-container
+            [ngTemplateOutlet]="litterPickCard"
+            [ngTemplateOutletContext]="{ $implicit: event, historyIndex: i }"
+          ></ng-container>
+        </ng-container>
+      </div>
+
+      <section class="litter-pick-completed" *ngIf="completedLitterPicks.length" aria-labelledby="completed-litter-picks-title">
+        <header class="litter-pick-completed__header">
+          <div>
+            <p class="litter-pick-completed__eyebrow">Completed</p>
+            <h3 id="completed-litter-picks-title">Previous litter picks</h3>
+          </div>
+          <div class="litter-pick-stack__controls" *ngIf="completedLitterPicks.length > 1" aria-label="Browse completed litter picks">
+            <button
+              class="litter-pick-stack__nav"
+              type="button"
+              aria-label="Previous completed litter pick"
+              (click)="previousCompletedLitterPick()"
+            >
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <span class="litter-pick-stack__count">{{ completedLitterPickIndex + 1 }} / {{ completedLitterPicks.length }}</span>
+            <button
+              class="litter-pick-stack__nav"
+              type="button"
+              aria-label="Next completed litter pick"
+              (click)="nextCompletedLitterPick()"
+            >
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="m9 6 6 6-6 6" />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="litter-pick-stack__cards">
+          <div
+            class="litter-pick-stack__item"
+            *ngFor="let event of completedLitterPicks; let completedIndex = index"
+            [class.is-front]="completedStackPosition(completedIndex) === 0"
+            [class.is-next]="completedStackPosition(completedIndex) === 1"
+            [class.is-third]="completedStackPosition(completedIndex) === 2"
+            [class.is-hidden]="completedStackPosition(completedIndex) > 2"
+            [attr.aria-hidden]="completedStackPosition(completedIndex) === 0 ? null : 'true'"
+            [attr.inert]="completedStackPosition(completedIndex) === 0 ? null : ''"
+          >
+            <ng-container
+              [ngTemplateOutlet]="litterPickCard"
+              [ngTemplateOutletContext]="{ $implicit: event, historyIndex: upcomingLitterPicks.length + completedIndex }"
+            ></ng-container>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <ng-template #litterPickCard let-event let-i="historyIndex">
+      <article class="litter-pick-card" [class.litter-pick-card--results]="isResultEvent(event)">
+        <span class="litter-pick-card__ribbon" *ngIf="isResultEvent(event)">{{ ribbonLabel(event) }}</span>
         <div class="litter-pick-card__media" [class.has-photo]="primaryPhoto(event)">
           <ng-container *ngIf="eventPhotos(event) as photos">
             <div class="litter-pick-card__photo-layout" *ngIf="photos.length">
@@ -49,16 +111,16 @@
           <div class="litter-pick-card__header">
             <div>
               <p class="litter-pick-card__eyebrow">{{ formatDate(event) }} · {{ timeRange(event) }}</p>
-              <h3>Community litter pick</h3>
+              <h3 *ngIf="!isResultEvent(event)">{{ cardTitle(event) }}</h3>
             </div>
-            <div class="litter-pick-card__corner">
-              <span class="litter-pick-card__status">Open</span>
+            <div class="litter-pick-card__corner" *ngIf="!isResultEvent(event)">
+              <span class="litter-pick-card__status" [class.is-results]="isResultEvent(event)">{{ statusLabel(event) }}</span>
             </div>
           </div>
 
-          <p>{{ shortDescription(event) }}</p>
+          <p *ngIf="!isResultEvent(event)">{{ shortDescription(event) }}</p>
 
-          <dl class="litter-pick-card__details">
+          <dl class="litter-pick-card__details" *ngIf="!isResultEvent(event)">
             <div>
               <dt>Meet</dt>
               <dd>{{ meetingPoint(event) }}</dd>
@@ -69,16 +131,37 @@
             </div>
           </dl>
 
-          <div class="litter-pick-card__badges" aria-label="Event tags">
+          <div class="litter-pick-card__badges" aria-label="Event tags" *ngIf="!isResultEvent(event)">
             <span *ngFor="let badge of badges(event)">{{ badge }}</span>
           </div>
 
-          <p class="litter-pick-card__note" *ngIf="event.accessibilityNotes || event.weatherPlan">
+          <p class="litter-pick-card__note" *ngIf="!isResultEvent(event) && (event.accessibilityNotes || event.weatherPlan)">
             <strong *ngIf="event.accessibilityNotes">{{ event.accessibilityNotes }}</strong>
             <span *ngIf="event.weatherPlan">{{ event.weatherPlan }}</span>
           </p>
 
-          <div class="litter-pick-card__actions">
+          <div class="litter-pick-card__results" *ngIf="isResultEvent(event)" aria-label="Litter pick results">
+            <dl class="litter-pick-card__result-stats">
+              <div>
+                <dt>Bags</dt>
+                <dd>{{ totalBags(event) }}</dd>
+              </div>
+              <div>
+                <dt>Volunteers</dt>
+                <dd>{{ totalVolunteers(event) }}</dd>
+              </div>
+              <div>
+                <dt>Teams</dt>
+                <dd>{{ resultTeamCount(event) }}</dd>
+              </div>
+              <div>
+                <dt>Area covered</dt>
+                <dd>{{ coveragePercent(event) }}%</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="litter-pick-card__actions" *ngIf="isOpenForSignups(event)">
             <button
               class="btn btn--outline litter-pick-card__attendance-button"
               type="button"
@@ -131,7 +214,7 @@
           </div>
           <p
             class="litter-pick-card__notification-status"
-            *ngIf="notificationTestMessage[event.id]"
+            *ngIf="isOpenForSignups(event) && notificationTestMessage[event.id]"
             [class.is-error]="notificationTestState[event.id] === 'failed'"
           >
             {{ notificationTestMessage[event.id] }}
@@ -186,11 +269,11 @@
           </div>
         </div>
       </article>
-    </div>
+    </ng-template>
 
     <ng-template #noLitterPicks>
       <div class="litter-pick-public__empty card" *ngIf="!loading && !error">
-        <p>No community litter picks are scheduled right now. Please check back soon.</p>
+        <p>No community litter picks are published right now. Please check back soon.</p>
       </div>
     </ng-template>
   </div>

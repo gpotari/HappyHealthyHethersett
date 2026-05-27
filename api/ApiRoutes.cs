@@ -634,7 +634,6 @@ public static class ApiRoutes
                 .AsNoTracking()
                 .Include(item => item.CreatedByUser)
                 .Include(item => item.UpdatedByUser)
-                .Where(item => item.Status == "open")
                 .OrderBy(item => item.Date)
                 .ThenBy(item => item.Start)
                 .ToListAsync();

@@ -1,12 +1,13 @@
 import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { catchError, of, Subscription } from 'rxjs';
-import { LitterPickEvent } from '../models/litter-pick-event';
+import { LitterPickArea, LitterPickEvent } from '../models/litter-pick-event';
 import { PhotoAttachment } from '../models/photo-attachment';
 import { CurrentUser } from '../models/user';
 import { AuthService } from '../services/auth.service';
 import { LitterPickEventsService } from '../services/litter-pick-events.service';
 import { PushNotificationsService, PushReminderResultReason } from '../services/push-notifications.service';
+import { HETHERSETT_BOUNDARY, HETHERSETT_MAP_BOUNDS, MapPoint } from '../data/hethersett-boundary';
 
 type NotificationTestState = 'idle' | 'sending' | 'sent' | 'failed';
 
@@ -18,6 +19,8 @@ type NotificationTestState = 'idle' | 'sending' | 'sent' | 'failed';
 })
 export class LitterPickEventsComponent implements OnInit, OnDestroy {
   private readonly defaultMeetingPointLabel = 'Hethersett Methodist Church';
+  private readonly mapBoundaryPoints = this.createBoundaryPoints();
+  private readonly coverageSamplePoints = this.createCoverageSamplePoints();
   litterPicks: LitterPickEvent[] = [];
   currentUser: CurrentUser | null = null;
   loading = true;
@@ -28,6 +31,7 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
   activeHistoryPopover = '';
   activeGalleryEvent: LitterPickEvent | null = null;
   activeGalleryIndex = 0;
+  completedLitterPickIndex = 0;
   private userSubscription?: Subscription;
 
   constructor(
@@ -58,7 +62,8 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
         })
       )
       .subscribe((events) => {
-        this.litterPicks = this.upcomingOpenEvents(events);
+        this.litterPicks = this.publicLitterPickEvents(events);
+        this.normalizeCompletedStackIndex();
         this.loading = false;
         if (this.currentUser) {
           this.loadAttendanceState();
@@ -132,12 +137,147 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
     return 'Bags and litter pickers will be provided.';
   }
 
+  get upcomingLitterPicks(): LitterPickEvent[] {
+    return this.litterPicks.filter((event) => this.isOpenForSignups(event));
+  }
+
+  get completedLitterPicks(): LitterPickEvent[] {
+    return this.litterPicks.filter((event) => this.isResultEvent(event));
+  }
+
   badges(event: LitterPickEvent): string[] {
+    if (this.isResultEvent(event)) {
+      const badges = ['Completed', this.hasRecordedResults(event) ? 'Results recorded' : 'Results pending'];
+      if (this.resultTeamCount(event)) {
+        badges.push(`${this.resultTeamCount(event)} team${this.resultTeamCount(event) === 1 ? '' : 's'}`);
+      }
+      return badges;
+    }
+
     const badges = ['Everyone welcome', 'Bags provided', 'Pickers provided'];
     if (event.accessibilityNotes?.trim()) {
       badges.push('Accessibility notes');
     }
     return badges;
+  }
+
+  isOpenForSignups(event: LitterPickEvent): boolean {
+    return this.isUpcomingOpenEventAt(event, new Date());
+  }
+
+  isResultEvent(event: LitterPickEvent): boolean {
+    return !this.isOpenForSignups(event);
+  }
+
+  statusLabel(event: LitterPickEvent): string {
+    if (this.isOpenForSignups(event)) {
+      return 'Open';
+    }
+
+    return event.status === 'closed' ? 'Results' : 'Completed';
+  }
+
+  ribbonLabel(event: LitterPickEvent): string {
+    return event.status === 'closed' ? 'Closed' : 'Past';
+  }
+
+  previousCompletedLitterPick(): void {
+    this.stepCompletedLitterPick(-1);
+  }
+
+  nextCompletedLitterPick(): void {
+    this.stepCompletedLitterPick(1);
+  }
+
+  completedStackPosition(index: number): number {
+    const count = this.completedLitterPicks.length;
+    if (!count) {
+      return 0;
+    }
+
+    return (index - this.completedLitterPickIndex + count) % count;
+  }
+
+  cardTitle(event: LitterPickEvent): string {
+    return this.isResultEvent(event) ? 'Community clean-up recap' : 'Community litter pick';
+  }
+
+  totalBags(event: LitterPickEvent): number {
+    return (event.areas || []).reduce((total, area) => total + this.safeNumber(area.bags), 0);
+  }
+
+  totalVolunteers(event: LitterPickEvent): number {
+    return (event.areas || []).reduce((total, area) => total + this.safeNumber(area.volunteers), 0);
+  }
+
+  resultTeamCount(event: LitterPickEvent): number {
+    return (event.areas || []).length;
+  }
+
+  coveragePercent(event: LitterPickEvent): number {
+    if (!this.coverageSamplePoints.length) {
+      return 0;
+    }
+
+    const covered = this.coverageSamplePoints.filter((point) =>
+      (event.areas || []).some((area) => this.isPointInsideArea(point, area))
+    ).length;
+
+    return Math.round((covered / this.coverageSamplePoints.length) * 100);
+  }
+
+  coveredAreaCount(event: LitterPickEvent): number {
+    const coveredAreas = new Set<string>();
+
+    (event.areas || []).forEach((area) => {
+      const coverageItems = area.coverageItems || [];
+      coverageItems.forEach((item) => coveredAreas.add(item.streetName || item.label || item.id));
+      (area.streetNames || []).forEach((street) => coveredAreas.add(street));
+      if (area.streets?.trim()) {
+        area.streets
+          .split(',')
+          .map((street) => street.trim())
+          .filter(Boolean)
+          .forEach((street) => coveredAreas.add(street));
+      }
+      if (!coverageItems.length && !area.streetNames?.length && !area.streets?.trim()) {
+        coveredAreas.add(area.id || area.label);
+      }
+    });
+
+    return coveredAreas.size;
+  }
+
+  hasRecordedResults(event: LitterPickEvent): boolean {
+    return this.totalBags(event) > 0 || this.totalVolunteers(event) > 0;
+  }
+
+  resultSummary(event: LitterPickEvent): string {
+    if (!this.hasRecordedResults(event)) {
+      return 'Results are being added by the organising team.';
+    }
+
+    const volunteers = this.totalVolunteers(event);
+    const bags = this.totalBags(event);
+    return `${this.plural(volunteers, 'volunteer')} helped collect ${this.plural(bags, 'bag')}.`;
+  }
+
+  resultAreas(event: LitterPickEvent): LitterPickArea[] {
+    return [...(event.areas || [])]
+      .sort(
+        (a, b) =>
+          this.safeNumber(b.bags) - this.safeNumber(a.bags) ||
+          this.safeNumber(b.volunteers) - this.safeNumber(a.volunteers)
+      )
+      .slice(0, 3);
+  }
+
+  resultAreaSummary(area: LitterPickArea): string {
+    return `${this.plural(this.safeNumber(area.bags), 'bag')} · ${this.plural(this.safeNumber(area.volunteers), 'volunteer')}`;
+  }
+
+  resultAreaDetail(area: LitterPickArea): string {
+    return (area.streetNames || []).join(', ') || area.streets?.trim() || area.notes?.trim() || 'Covered area';
   }
 
   meetingPoint(event: LitterPickEvent): string {
@@ -387,7 +527,7 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
   }
 
   toggleAttendance(event: LitterPickEvent): void {
-    if (!this.currentUser || this.attendanceUpdating[event.id]) {
+    if (!this.currentUser || this.attendanceUpdating[event.id] || !this.isOpenForSignups(event)) {
       return;
     }
 
@@ -539,11 +679,43 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
     return sameTime && sameUser;
   }
 
-  private upcomingOpenEvents(events: LitterPickEvent[]): LitterPickEvent[] {
+  private publicLitterPickEvents(events: LitterPickEvent[]): LitterPickEvent[] {
     const now = new Date();
-    return events
-      .filter((event) => event.status === 'open' && this.eventEndDate(event) >= now)
-      .sort((a, b) => `${a.date}T${a.start || ''}`.localeCompare(`${b.date}T${b.start || ''}`));
+    return [...events].sort((a, b) => {
+      const aUpcoming = this.isUpcomingOpenEventAt(a, now);
+      const bUpcoming = this.isUpcomingOpenEventAt(b, now);
+      if (aUpcoming !== bUpcoming) {
+        return aUpcoming ? -1 : 1;
+      }
+
+      const aTime = this.eventSortTime(a);
+      const bTime = this.eventSortTime(b);
+      return aUpcoming ? aTime - bTime : bTime - aTime;
+    });
+  }
+
+  private stepCompletedLitterPick(delta: number): void {
+    const count = this.completedLitterPicks.length;
+    if (count <= 1) {
+      return;
+    }
+
+    this.completedLitterPickIndex = (this.completedLitterPickIndex + delta + count) % count;
+    this.activeHistoryPopover = '';
+  }
+
+  private normalizeCompletedStackIndex(): void {
+    const count = this.completedLitterPicks.length;
+    if (!count) {
+      this.completedLitterPickIndex = 0;
+      return;
+    }
+
+    this.completedLitterPickIndex = Math.min(this.completedLitterPickIndex, count - 1);
+  }
+
+  private isUpcomingOpenEventAt(event: LitterPickEvent, now: Date): boolean {
+    return event.status === 'open' && this.eventEndDate(event) >= now;
   }
 
   private eventEndDate(event: LitterPickEvent): Date {
@@ -551,6 +723,143 @@ export class LitterPickEventsComponent implements OnInit, OnDestroy {
       return new Date(8640000000000000);
     }
     return new Date(`${event.date}T${event.end || event.start || '23:59'}:00`);
+  }
+
+  private eventSortTime(event: LitterPickEvent): number {
+    if (!event.date) {
+      return 0;
+    }
+
+    const date = new Date(`${event.date}T${event.start || '00:00'}:00`);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+
+  private safeNumber(value?: number): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+  }
+
+  private plural(value: number, singular: string): string {
+    return `${value} ${singular}${value === 1 ? '' : 's'}`;
+  }
+
+  private createBoundaryPoints(): MapPoint[] {
+    const bounds = HETHERSETT_MAP_BOUNDS;
+    return HETHERSETT_BOUNDARY.map((point) => ({
+      x: ((point.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100,
+      y: ((bounds.maxLat - point.lat) / (bounds.maxLat - bounds.minLat)) * 100
+    }));
+  }
+
+  private createCoverageSamplePoints(): MapPoint[] {
+    const points: MapPoint[] = [];
+    const bounds = this.boundaryPointBounds();
+    const steps = 64;
+
+    for (let row = 0; row < steps; row += 1) {
+      for (let col = 0; col < steps; col += 1) {
+        const point = {
+          x: bounds.minX + ((col + 0.5) / steps) * (bounds.maxX - bounds.minX),
+          y: bounds.minY + ((row + 0.5) / steps) * (bounds.maxY - bounds.minY)
+        };
+        if (this.isPointInPolygon(point, this.mapBoundaryPoints)) {
+          points.push(point);
+        }
+      }
+    }
+
+    return points;
+  }
+
+  private boundaryPointBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    return {
+      minX: Math.min(...this.mapBoundaryPoints.map((point) => point.x)),
+      maxX: Math.max(...this.mapBoundaryPoints.map((point) => point.x)),
+      minY: Math.min(...this.mapBoundaryPoints.map((point) => point.y)),
+      maxY: Math.max(...this.mapBoundaryPoints.map((point) => point.y))
+    };
+  }
+
+  private isPointInsideArea(point: MapPoint, area: LitterPickArea): boolean {
+    return this.areaCoveragePolygons(area).some((polygon) => this.isPointInPolygon(point, polygon));
+  }
+
+  private areaCoveragePolygons(area: LitterPickArea): MapPoint[][] {
+    const itemPolygons = this.coverageItemPolygons(area.coverageItems || []);
+    if (itemPolygons.length) {
+      return itemPolygons;
+    }
+
+    const coveragePolygons = (area.coveragePolygons || [])
+      .map((polygon) => this.sanitizeAreaPoints(polygon || []))
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+    if (coveragePolygons.length) {
+      return coveragePolygons;
+    }
+
+    const legacyPoints = this.legacyAreaPoints(area);
+    return legacyPoints.length ? [legacyPoints] : [];
+  }
+
+  private coverageItemPolygons(items: LitterPickArea['coverageItems']): MapPoint[][] {
+    return (items || [])
+      .map((item) => this.sanitizeAreaPoints(item.polygon || []))
+      .filter((polygon) => polygon.length >= 3 && this.polygonArea(polygon) >= 0.2);
+  }
+
+  private sanitizeAreaPoints(points: MapPoint[]): MapPoint[] {
+    const bounds = this.boundaryPointBounds();
+    return points.map((point) => ({
+      x: Number(this.clamp(point.x, bounds.minX, bounds.maxX).toFixed(2)),
+      y: Number(this.clamp(point.y, bounds.minY, bounds.maxY).toFixed(2))
+    }));
+  }
+
+  private legacyAreaPoints(area: LitterPickArea): MapPoint[] {
+    const x = area.x ?? 0;
+    const y = area.y ?? 0;
+    const width = area.width ?? 0;
+    const height = area.height ?? 0;
+
+    if (!width || !height) {
+      return [];
+    }
+
+    return [
+      { x, y },
+      { x: x + width, y },
+      { x: x + width, y: y + height },
+      { x, y: y + height }
+    ];
+  }
+
+  private isPointInPolygon(point: MapPoint, polygon: MapPoint[]): boolean {
+    let inside = false;
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+      const current = polygon[i];
+      const previous = polygon[j];
+      const intersects =
+        current.y > point.y !== previous.y > point.y &&
+        point.x < ((previous.x - current.x) * (point.y - current.y)) / (previous.y - current.y) + current.x;
+      if (intersects) {
+        inside = !inside;
+      }
+    }
+
+    return inside;
+  }
+
+  private polygonArea(points: MapPoint[]): number {
+    let area = 0;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+      area += (points[j].x + points[i].x) * (points[j].y - points[i].y);
+    }
+    return Math.abs(area / 2);
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
   }
 
   private calendarTimestamp(date: string, time: string): string {

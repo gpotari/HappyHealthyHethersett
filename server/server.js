@@ -314,6 +314,16 @@ app.get('/api/litter-pick-events', requireAuth, async (_req, res) => {
   }
 });
 
+app.get('/api/public/litter-pick-events', async (_req, res) => {
+  try {
+    const events = await readLitterPickEvents();
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(events);
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to load litter pick events' });
+  }
+});
+
 app.put('/api/litter-pick-events', requireAuth, async (req, res) => {
   const events = req.body;
   if (!Array.isArray(events)) {
