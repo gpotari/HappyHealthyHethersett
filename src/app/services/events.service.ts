@@ -3,6 +3,11 @@ import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, catchError, map, of, tap } from 'rxjs';
 import { EventItem } from '../models/event-item';
 
+export interface EventAttendanceResponse {
+  eventId: string;
+  attending: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class EventsService {
   private readonly apiUrl = '/api/events';
@@ -33,11 +38,25 @@ export class EventsService {
   }
 
   loadEvents() {
-    return this.http.get<EventItem[]>(this.apiUrl).pipe(
+    return this.http.get<EventItem[]>(this.apiUrl, { withCredentials: true }).pipe(
       catchError(() => this.http.get<EventItem[]>(this.fallbackUrl)),
       catchError(() => of([])),
       map((events) => this.sortEvents(events.map((event) => this.cloneEvent(event)))),
       tap((events) => this.eventsSubject.next(events))
+    );
+  }
+
+  loadMyAttendance() {
+    return this.http
+      .get<{ eventIds: string[] }>(`${this.apiUrl}/attendance`, { withCredentials: true })
+      .pipe(map((response) => new Set(response.eventIds || [])));
+  }
+
+  setAttendance(eventId: string, attending: boolean) {
+    return this.http.put<EventAttendanceResponse>(
+      `${this.apiUrl}/${encodeURIComponent(eventId)}/attendance`,
+      { attending },
+      { withCredentials: true }
     );
   }
 

@@ -333,7 +333,7 @@ public static class ApiRoutes
             }
         }).RequireAuthorization(AppRoles.AdminOnlyPolicy);
 
-        app.MapGet("/api/events", async (AppDbContext db) =>
+        app.MapGet("/api/events", async (AppDbContext db, ClaimsPrincipal currentUser) =>
         {
             var events = await db.Events
                 .AsNoTracking()
@@ -342,20 +342,98 @@ public static class ApiRoutes
                 .OrderBy(item => item.SortOrder)
                 .ToListAsync();
             var eventIds = events.Select(EventOwnerId).ToArray();
+            var attendanceCounts = CurrentUserIsStaff(currentUser)
+                ? await EventAttendanceCountsAsync(db, eventIds)
+                : new Dictionary<string, int>(StringComparer.Ordinal);
+            var currentUserId = CurrentUserId(currentUser);
+            var attendingEventIds = currentUserId is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : (await db.EventAttendances
+                    .AsNoTracking()
+                    .Where(item => item.UserId == currentUserId.Value && eventIds.Contains(item.EventId))
+                    .Select(item => item.EventId)
+                    .ToListAsync())
+                    .ToHashSet(StringComparer.Ordinal);
             var photos = await db.StoredPhotos
                 .AsNoTracking()
                 .Where(photo => photo.OwnerType == CommunityEventPhotoOwner && eventIds.Contains(photo.OwnerId))
                 .OrderBy(photo => photo.CreatedAt)
                 .ToListAsync();
             var photosByEvent = photos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
-            return Results.Ok(events.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>())));
+            return Results.Ok(events.Select(item => ToEventDto(
+                item,
+                photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>(),
+                CurrentUserIsStaff(currentUser) ? attendanceCounts.GetValueOrDefault(EventOwnerId(item)) : null,
+                attendingEventIds.Contains(EventOwnerId(item)))));
         }).AllowAnonymous();
+
+        app.MapGet("/api/events/attendance", async (AppDbContext db, ClaimsPrincipal currentUser) =>
+        {
+            var currentUserId = CurrentUserId(currentUser);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var eventIds = await db.EventAttendances
+                .AsNoTracking()
+                .Where(item => item.UserId == currentUserId.Value)
+                .Select(item => item.EventId)
+                .OrderBy(id => id)
+                .ToArrayAsync();
+            return Results.Ok(new EventAttendanceListResponse(eventIds));
+        }).RequireAuthorization();
+
+        app.MapPut("/api/events/{id}/attendance", async (
+            string id,
+            EventAttendanceRequest request,
+            AppDbContext db,
+            ClaimsPrincipal currentUser) =>
+        {
+            var eventId = Clean(id, 80);
+            var currentUserId = CurrentUserId(currentUser);
+            if (currentUserId is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var communityEvent = await db.Events
+                .AsNoTracking()
+                .SingleOrDefaultAsync(item => item.PublicId == eventId);
+            if (communityEvent is null)
+            {
+                return Results.NotFound();
+            }
+
+            var existingAttendance = await db.EventAttendances.SingleOrDefaultAsync(item =>
+                item.EventId == eventId && item.UserId == currentUserId.Value);
+            if (request.Attending && existingAttendance is null)
+            {
+                await db.EventAttendances.AddAsync(new EventAttendanceEntity
+                {
+                    EventId = eventId,
+                    UserId = currentUserId.Value
+                });
+            }
+            else if (!request.Attending && existingAttendance is not null)
+            {
+                db.EventAttendances.Remove(existingAttendance);
+            }
+
+            await db.SaveChangesAsync();
+            return Results.Ok(new EventAttendanceResponse(eventId, request.Attending));
+        }).RequireAuthorization();
 
         app.MapPut("/api/events", async (List<EventDto> events, AppDbContext db, ClaimsPrincipal currentUser) =>
         {
             var currentUserId = CurrentUserId(currentUser);
             var existingEventList = await db.Events.AsNoTracking().ToListAsync();
             var existingEvents = existingEventList.ToDictionary(EventOwnerId, StringComparer.Ordinal);
+            var incomingEventIds = events
+                .Select(item => CleanOptional(item.Id, 80))
+                .OfType<string>()
+                .ToHashSet(StringComparer.Ordinal);
+            var deletedEventIds = existingEvents.Keys.Except(incomingEventIds, StringComparer.Ordinal).ToArray();
             if (!CurrentUserIsAdmin(currentUser) && RemovesExistingCommunityEvent(events, existingEvents))
             {
                 return Results.Forbid();
@@ -363,6 +441,12 @@ public static class ApiRoutes
 
             await using var transaction = await db.Database.BeginTransactionAsync();
             db.Events.RemoveRange(await db.Events.ToListAsync());
+            if (deletedEventIds.Length > 0)
+            {
+                db.EventAttendances.RemoveRange(await db.EventAttendances
+                    .Where(item => deletedEventIds.Contains(item.EventId))
+                    .ToListAsync());
+            }
             db.StoredPhotos.RemoveRange(await db.StoredPhotos.Where(photo => photo.OwnerType == CommunityEventPhotoOwner).ToListAsync());
             var eventEntities = events.Select((item, index) => ToEventEntity(item, index, currentUserId, existingEvents)).ToList();
             var photoEntities = events
@@ -385,7 +469,20 @@ public static class ApiRoutes
                 .OrderBy(photo => photo.CreatedAt)
                 .ToListAsync();
             var photosByEvent = savedPhotos.GroupBy(photo => photo.OwnerId).ToDictionary(group => group.Key, group => group.ToList());
-            return Results.Ok(savedEvents.Select(item => ToEventDto(item, photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>())));
+            var attendanceCounts = await EventAttendanceCountsAsync(db, savedEventIds);
+            var attendingEventIds = currentUserId is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : (await db.EventAttendances
+                    .AsNoTracking()
+                    .Where(item => item.UserId == currentUserId.Value && savedEventIds.Contains(item.EventId))
+                    .Select(item => item.EventId)
+                    .ToListAsync())
+                    .ToHashSet(StringComparer.Ordinal);
+            return Results.Ok(savedEvents.Select(item => ToEventDto(
+                item,
+                photosByEvent.GetValueOrDefault(EventOwnerId(item)) ?? new List<StoredPhotoEntity>(),
+                attendanceCounts.GetValueOrDefault(EventOwnerId(item)),
+                attendingEventIds.Contains(EventOwnerId(item)))));
         }).RequireAuthorization(AppRoles.StaffOnlyPolicy);
 
         app.MapPost("/api/litter-reports", async (LitterReportDto payload, AppDbContext db) =>
@@ -760,6 +857,11 @@ public static class ApiRoutes
         return currentUser.IsInRole(AppRoles.Admin);
     }
 
+    private static bool CurrentUserIsStaff(ClaimsPrincipal currentUser)
+    {
+        return currentUser.IsInRole(AppRoles.Admin) || currentUser.IsInRole(AppRoles.Editor);
+    }
+
     private static bool RemovesExistingCommunityEvent(List<EventDto> events, IReadOnlyDictionary<string, CommunityEvent> existingEvents)
     {
         var incomingIds = events
@@ -791,7 +893,11 @@ public static class ApiRoutes
             : new EventCreatorDto(user.Id, user.DisplayName, AuthService.AvatarDataUrl(user));
     }
 
-    private static EventDto ToEventDto(CommunityEvent item, List<StoredPhotoEntity> photos)
+    private static EventDto ToEventDto(
+        CommunityEvent item,
+        List<StoredPhotoEntity> photos,
+        int? registeredCount = null,
+        bool? isAttending = null)
     {
         return new EventDto
         {
@@ -809,6 +915,8 @@ public static class ApiRoutes
             ImageUrl = item.ImageUrl,
             ImageAlt = item.ImageAlt,
             Photos = photos.Select(ToPhotoDto).ToList(),
+            RegisteredCount = registeredCount,
+            IsAttending = isAttending,
             CreatedAt = item.CreatedAt,
             CreatedBy = ToEventCreatorDto(item.CreatedByUser),
             UpdatedAt = item.UpdatedAt,
@@ -868,6 +976,21 @@ public static class ApiRoutes
     private static string EventOwnerId(CommunityEvent item)
     {
         return string.IsNullOrWhiteSpace(item.PublicId) ? $"event-{item.Id}" : item.PublicId;
+    }
+
+    private static async Task<Dictionary<string, int>> EventAttendanceCountsAsync(AppDbContext db, string[] eventIds)
+    {
+        if (eventIds.Length == 0)
+        {
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+        }
+
+        return await db.EventAttendances
+            .AsNoTracking()
+            .Where(item => eventIds.Contains(item.EventId))
+            .GroupBy(item => item.EventId)
+            .Select(group => new { EventId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.EventId, item => item.Count, StringComparer.Ordinal);
     }
 
     private static LitterReportDto ToLitterReportDto(LitterReportEntity report, List<StoredPhotoEntity> photos)

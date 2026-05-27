@@ -147,6 +147,7 @@ public class AuthService
             .ToArrayAsync();
 
         _db.UserRoles.RemoveRange(await _db.UserRoles.Where(item => item.UserId == id).ToListAsync());
+        _db.EventAttendances.RemoveRange(await _db.EventAttendances.Where(item => item.UserId == id).ToListAsync());
         _db.LitterPickAttendances.RemoveRange(await _db.LitterPickAttendances.Where(item => item.UserId == id).ToListAsync());
         _db.LitterPickReminderDeliveries.RemoveRange(await _db.LitterPickReminderDeliveries.Where(item => item.UserId == id).ToListAsync());
         _db.PushNotificationSubscriptions.RemoveRange(await _db.PushNotificationSubscriptions.Where(item => item.UserId == id).ToListAsync());

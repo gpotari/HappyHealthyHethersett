@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<AppRole> Roles => Set<AppRole>();
     public DbSet<AppUserRole> UserRoles => Set<AppUserRole>();
     public DbSet<CommunityEvent> Events => Set<CommunityEvent>();
+    public DbSet<EventAttendanceEntity> EventAttendances => Set<EventAttendanceEntity>();
     public DbSet<LitterReportEntity> LitterReports => Set<LitterReportEntity>();
     public DbSet<LitterPickEventEntity> LitterPickEvents => Set<LitterPickEventEntity>();
     public DbSet<LitterPickAttendanceEntity> LitterPickAttendances => Set<LitterPickAttendanceEntity>();
@@ -92,6 +93,19 @@ public class AppDbContext : DbContext
             entity.HasIndex(item => item.CreatedByUserId);
             entity.HasIndex(item => item.UpdatedAt);
             entity.HasIndex(item => item.UpdatedByUserId);
+        });
+
+        modelBuilder.Entity<EventAttendanceEntity>(entity =>
+        {
+            entity.ToTable("event_attendances");
+            entity.HasKey(item => new { item.EventId, item.UserId });
+            entity.Property(item => item.EventId).HasMaxLength(80);
+            entity.HasOne(item => item.User)
+                .WithMany()
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(item => item.UserId);
+            entity.HasIndex(item => item.CreatedAt);
         });
 
         modelBuilder.Entity<LitterReportEntity>(entity =>

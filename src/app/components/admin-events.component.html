@@ -131,6 +131,7 @@
                   <th>Date</th>
                   <th>Time</th>
                   <th>Location</th>
+                  <th>Counted in</th>
                   <th>History</th>
                   <th>Actions</th>
                 </tr>
@@ -142,6 +143,7 @@
                     <td>{{ event.date }}</td>
                     <td>{{ event.start }} – {{ event.end }}</td>
                     <td>{{ event.location || '—' }}</td>
+                    <td>{{ event.registeredCount || 0 }}</td>
                     <td>
                       <div class="admin__history-stack" aria-label="Event history">
                         <span

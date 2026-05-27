@@ -95,6 +95,22 @@ public static class DatabaseInitializer
             ON `events` (`UpdatedByUserId`);
             """);
         await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS `event_attendances` (
+                `EventId` varchar(80) CHARACTER SET utf8mb4 NOT NULL,
+                `UserId` char(36) CHARACTER SET ascii NOT NULL,
+                `CreatedAt` datetime(6) NOT NULL,
+                CONSTRAINT `PK_event_attendances` PRIMARY KEY (`EventId`, `UserId`)
+            ) CHARACTER SET=utf8mb4;
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_event_attendances_UserId`
+            ON `event_attendances` (`UserId`);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS `IX_event_attendances_CreatedAt`
+            ON `event_attendances` (`CreatedAt`);
+            """);
+        await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE `litter_pick_events`
             ADD COLUMN IF NOT EXISTS `Description` varchar(1400) CHARACTER SET utf8mb4 NULL,
             ADD COLUMN IF NOT EXISTS `Capacity` int NULL,

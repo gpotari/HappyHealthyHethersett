@@ -68,6 +68,12 @@ public record EventCreatorDto(Guid Id, string DisplayName, string? AvatarDataUrl
 
 public record UpdateLitterReportStateRequest(string State);
 
+public record EventAttendanceRequest(bool Attending);
+
+public record EventAttendanceResponse(string EventId, bool Attending);
+
+public record EventAttendanceListResponse(string[] EventIds);
+
 public record LitterPickAttendanceRequest(bool Attending);
 
 public record LitterPickAttendanceResponse(string EventId, bool Attending);
@@ -159,6 +165,12 @@ public class EventDto
 
     [JsonPropertyName("photos")]
     public List<PhotoDto> Photos { get; set; } = new();
+
+    [JsonPropertyName("registeredCount")]
+    public int? RegisteredCount { get; set; }
+
+    [JsonPropertyName("isAttending")]
+    public bool? IsAttending { get; set; }
 
     [JsonPropertyName("createdAt")]
     public DateTimeOffset? CreatedAt { get; set; }

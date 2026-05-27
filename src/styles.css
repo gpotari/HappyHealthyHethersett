@@ -1266,7 +1266,8 @@ a:focus-visible {
   gap: 0.42rem;
 }
 
-.litter-pick-card__attendance-button {
+.litter-pick-card__attendance-button,
+.event-card__attendance-button {
   align-self: flex-start;
   min-height: 34px;
   min-width: 84px;
@@ -1274,14 +1275,17 @@ a:focus-visible {
   font-size: 0.86rem;
 }
 
-.litter-pick-card__attendance-button.is-active {
+.litter-pick-card__attendance-button.is-active,
+.event-card__attendance-button.is-active {
   border-color: var(--green-850);
   background: var(--green-850);
   color: var(--white);
 }
 
 .litter-pick-card__attendance-button.is-active:hover,
-.litter-pick-card__attendance-button.is-active:focus-visible {
+.litter-pick-card__attendance-button.is-active:focus-visible,
+.event-card__attendance-button.is-active:hover,
+.event-card__attendance-button.is-active:focus-visible {
   background: var(--green-950);
   color: var(--white);
 }
@@ -1317,7 +1321,8 @@ a:focus-visible {
   color: var(--clay);
 }
 
-.litter-pick-card__calendar-button {
+.litter-pick-card__calendar-button,
+.event-card__calendar-button {
   display: inline-flex;
   align-self: flex-start;
   width: fit-content;
@@ -1332,13 +1337,16 @@ a:focus-visible {
 }
 
 .litter-pick-card__calendar-button:hover,
-.litter-pick-card__calendar-button:focus-visible {
+.litter-pick-card__calendar-button:focus-visible,
+.event-card__calendar-button:hover,
+.event-card__calendar-button:focus-visible {
   border-color: rgba(23, 63, 45, 0.44);
   background: var(--green-120);
   color: var(--green-950);
 }
 
-.litter-pick-card__calendar-icon {
+.litter-pick-card__calendar-icon,
+.event-card__calendar-icon {
   display: inline-grid;
   width: 18px;
   height: 18px;
@@ -1346,7 +1354,8 @@ a:focus-visible {
   place-items: center;
 }
 
-.litter-pick-card__calendar-icon svg {
+.litter-pick-card__calendar-icon svg,
+.event-card__calendar-icon svg {
   display: block;
   width: 17px;
   height: 17px;

@@ -63,10 +63,33 @@
               <ng-template #plainNote>{{ event.note }}</ng-template>
             </p>
 
-            <div class="event-card__actions" *ngIf="event.ctaHref">
-              <a class="btn btn--secondary" [href]="event.ctaHref">
+            <div class="event-card__actions">
+              <button
+                class="btn btn--outline event-card__attendance-button"
+                type="button"
+                [class.is-active]="isAttending(event)"
+                [disabled]="!currentUser || !event.id || isAttendanceUpdating(event)"
+                [attr.aria-pressed]="currentUser && event.id ? isAttending(event) : null"
+                [attr.aria-label]="attendanceAriaLabel(event)"
+                [attr.title]="attendanceAriaLabel(event)"
+                (click)="toggleAttendance(event)"
+              >
+                {{ attendanceDisplayLabel(event) }}
+              </button>
+              <a class="btn btn--secondary" *ngIf="event.ctaHref" [href]="event.ctaHref">
                 {{ ctaLabel(event) }}
               </a>
+              <button class="btn btn--outline event-card__calendar-button" type="button" (click)="downloadCalendar(event)">
+                <span class="event-card__calendar-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M7 3v4" />
+                    <path d="M17 3v4" />
+                    <path d="M4 9h16" />
+                    <path d="M5 5h14v16H5z" />
+                  </svg>
+                </span>
+                Add to calendar
+              </button>
             </div>
 
             <div class="event-card__history event-card__history--bottom" *ngIf="showCreatedMeta(event)" aria-label="Event history">

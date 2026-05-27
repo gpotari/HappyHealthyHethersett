@@ -16,6 +16,8 @@ export interface EventItem {
   imageUrl?: string;
   imageAlt?: string;
   photos?: PhotoAttachment[];
+  registeredCount?: number;
+  isAttending?: boolean;
   createdAt?: string;
   createdBy?: EventCreator;
   updatedAt?: string;

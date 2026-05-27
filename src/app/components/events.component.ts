@@ -1,7 +1,9 @@
-import { Component, HostListener } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { AsyncPipe, NgFor, NgIf } from '@angular/common';
-import { map } from 'rxjs';
+import { map, Subscription } from 'rxjs';
 import { EventItem } from '../models/event-item';
+import { CurrentUser } from '../models/user';
+import { AuthService } from '../services/auth.service';
 import { EventsService } from '../services/events.service';
 
 @Component({
@@ -10,15 +12,40 @@ import { EventsService } from '../services/events.service';
   imports: [AsyncPipe, NgFor, NgIf],
   templateUrl: './events.component.html'
 })
-export class EventsComponent {
+export class EventsComponent implements OnInit, OnDestroy {
   readonly events$ = this.eventsService.events$.pipe(
     map((events) => this.filterUpcoming(events))
   );
+  currentUser: CurrentUser | null = null;
+  attendanceUpdating: Record<string, boolean> = {};
   activeImageUrl = '';
   activeImageAlt = '';
   activeHistoryPopover = '';
+  private attendingEventIds = new Set<string>();
+  private userSubscription?: Subscription;
 
-  constructor(private eventsService: EventsService) {}
+  constructor(
+    private authService: AuthService,
+    private eventsService: EventsService
+  ) {}
+
+  ngOnInit(): void {
+    this.userSubscription = this.authService.user$.subscribe((user) => {
+      const previousUserId = this.currentUser?.id || null;
+      this.currentUser = user;
+      if (previousUserId !== (user?.id || null)) {
+        if (!user) {
+          this.attendingEventIds = new Set<string>();
+        } else {
+          this.loadAttendanceState();
+        }
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.userSubscription?.unsubscribe();
+  }
 
   @HostListener('document:click')
   closeHistoryPopover(): void {
@@ -59,6 +86,51 @@ export class EventsComponent {
 
   ctaLabel(event: EventItem): string {
     return event.ctaLabel?.trim() || 'Learn more';
+  }
+
+  isAttending(event: EventItem): boolean {
+    const eventId = this.eventId(event);
+    return Boolean(this.currentUser && eventId && this.attendingEventIds.has(eventId));
+  }
+
+  attendanceButtonLabel(event: EventItem): string {
+    const eventId = this.eventId(event);
+    if (eventId && this.attendanceUpdating[eventId]) {
+      return 'Saving...';
+    }
+
+    return this.isAttending(event) ? 'Counted in' : 'Count me in';
+  }
+
+  attendanceDisplayLabel(event: EventItem): string {
+    if (!this.currentUser) {
+      return 'Sign in to join';
+    }
+
+    if (!this.eventId(event)) {
+      return 'Join unavailable';
+    }
+
+    return this.attendanceButtonLabel(event);
+  }
+
+  isAttendanceUpdating(event: EventItem): boolean {
+    const eventId = this.eventId(event);
+    return Boolean(eventId && this.attendanceUpdating[eventId]);
+  }
+
+  attendanceAriaLabel(event: EventItem): string {
+    if (!this.eventId(event)) {
+      return 'Sign-ups are unavailable for this event';
+    }
+
+    if (!this.currentUser) {
+      return 'Sign in to tell organisers you plan to come';
+    }
+
+    return this.isAttending(event)
+      ? 'Tell organisers you can no longer come'
+      : 'Tell organisers you plan to come';
   }
 
   eventImageUrl(event: EventItem): string {
@@ -180,6 +252,65 @@ export class EventsComponent {
     this.activeImageAlt = '';
   }
 
+  downloadCalendar(event: EventItem): void {
+    const title = event.title?.trim() || 'Happy Healthy Hethersett event';
+    const location = event.location?.trim() || '';
+    const description = [event.description?.trim(), event.note?.trim(), event.ctaHref?.trim()]
+      .filter(Boolean)
+      .join('\n');
+    const start = this.calendarTimestamp(event.date, event.start || '09:00');
+    const end = this.calendarTimestamp(event.date, event.end || event.start || '10:00');
+    const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const uidSource = this.eventId(event) || `${this.slug(title)}-${event.date || 'date-tbc'}`;
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Happy Healthy Hethersett//Event//EN',
+      'BEGIN:VEVENT',
+      `UID:${this.escapeCalendarText(uidSource)}@happyhealthyhethersett`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${start}`,
+      `DTEND:${end}`,
+      `SUMMARY:${this.escapeCalendarText(title)}`,
+      `LOCATION:${this.escapeCalendarText(location)}`,
+      `DESCRIPTION:${this.escapeCalendarText(description)}`,
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${this.slug(title)}.ics`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  toggleAttendance(event: EventItem): void {
+    const eventId = this.eventId(event);
+    if (!this.currentUser || !eventId || this.attendanceUpdating[eventId]) {
+      return;
+    }
+
+    const attending = !this.isAttending(event);
+    this.attendanceUpdating = { ...this.attendanceUpdating, [eventId]: true };
+    this.eventsService.setAttendance(eventId, attending).subscribe({
+      next: (response) => {
+        const nextAttendingEventIds = new Set(this.attendingEventIds);
+        if (response.attending) {
+          nextAttendingEventIds.add(response.eventId);
+        } else {
+          nextAttendingEventIds.delete(response.eventId);
+        }
+        this.attendingEventIds = nextAttendingEventIds;
+        this.attendanceUpdating = { ...this.attendanceUpdating, [eventId]: false };
+      },
+      error: () => {
+        this.attendanceUpdating = { ...this.attendanceUpdating, [eventId]: false };
+      }
+    });
+  }
+
   phoneLink(phone: string): string {
     return `tel:${phone.replace(/\s+/g, '')}`;
   }
@@ -228,5 +359,44 @@ export class EventsComponent {
   private filterUpcoming(events: EventItem[]): EventItem[] {
     const now = new Date();
     return events.filter((event) => new Date(`${event.date}T${event.start}:00`) >= now);
+  }
+
+  private calendarTimestamp(date: string, time: string): string {
+    const [year, month, day] = (date || '').split('-').map(Number);
+    const [hour, minute] = (time || '').split(':').map(Number);
+    const local = new Date(year || 1970, (month || 1) - 1, day || 1, hour || 0, minute || 0);
+    return local.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  }
+
+  private escapeCalendarText(value: string): string {
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/\r?\n/g, '\\n')
+      .replace(/,/g, '\\,')
+      .replace(/;/g, '\\;');
+  }
+
+  private eventId(event: EventItem): string {
+    return event.id?.trim() || '';
+  }
+
+  private slug(value: string): string {
+    return (
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'event'
+    );
+  }
+
+  private loadAttendanceState(): void {
+    this.eventsService.loadMyAttendance().subscribe({
+      next: (eventIds) => {
+        this.attendingEventIds = eventIds;
+      },
+      error: () => {
+        this.attendingEventIds = new Set<string>();
+      }
+    });
   }
 }
