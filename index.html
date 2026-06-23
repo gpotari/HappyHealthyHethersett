@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Happy Healthy Hethersett</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="assets/css/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="top-nav" aria-label="Primary">
+        <a class="brand" href="#home">Happy Healthy Hethersett</a>
+        <ul class="nav-links">
+          <li><a href="#events">Events</a></li>
+          <li><a href="#initiatives">Initiatives</a></li>
+          <li><a href="#volunteer">Volunteer</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+        <button class="nav-cta">Join Us</button>
+      </nav>
+      <section class="hero" id="home">
+        <div class="hero__content">
+          <h1>Community-powered wellbeing in Hethersett</h1>
+          <p>
+            From neighbourhood walks to green energy initiatives, we bring
+            people together to build a healthier, happier village for
+            everyone.
+          </p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="#events">See upcoming events</a>
+            <a class="button button--secondary" href="#newsletter">Get the newsletter</a>
+          </div>
+        </div>
+      </section>
+    </header>
+
+    <main>
+      <section class="info" id="events">
+        <h2>What&apos;s happening this month</h2>
+        <p>
+          Discover local meetups, volunteering opportunities, and sustainability
+          workshops aimed at keeping our community thriving.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="contact">
+      <p>&copy; <span id="year"></span> Happy Healthy Hethersett. All rights reserved.</p>
+    </footer>
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>
